@@ -1,64 +1,66 @@
 # TermDock
 
-TermDock is a secure, self-contained web terminal for Linux. It serves an embedded browser client, creates local PTY sessions without SSH, supports one-time-token authentication, and can manage Cloudflare Quick or fixed tunnels.
+TermDock 是一个安全、独立的 Linux 网页终端。它内置浏览器客户端，直接创建本地 PTY 会话，不依赖 SSH，并支持令牌认证以及 Cloudflare Quick Tunnel 和固定隧道。
 
-## Build
+## 构建
 
 ```sh
 make check
 make build
 ```
 
-Run locally with:
+本地运行：
 
 ```sh
 ./bin/webterm --config configs/config.example.json
 ```
 
-See `docs/quick-start.md`, `docs/fixed-tunnel.md`, and `docs/security.md` for deployment details. Installation assets are provided in `scripts/` and `packaging/systemd/`.
+更多部署说明请参阅 `docs/quick-start.md`、`docs/fixed-tunnel.md` 和 `docs/security.md`。
 
-## One-command installation
+## 一键安装
 
-TermDock publishes static Linux binaries for AMD64 (`x86_64`) and ARM64 (`aarch64`). On Debian or Ubuntu, install the latest GitHub Release with:
+TermDock 提供 AMD64（`x86_64`）和 ARM64（`aarch64`）静态 Linux 二进制文件，支持 Debian 和 Ubuntu：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | sudo sh
 ```
 
-The installer detects the CPU architecture, verifies the SHA-256 checksum, creates the `webterm` service account, and starts TermDock. It uses systemd when a working systemd instance is available, otherwise it automatically falls back to a background process with logs in `/var/log/webterm/webterm.log`. Without parameters, TermDock listens on `127.0.0.1:7681` and prints a random one-time token to the service log.
+安装脚本会自动检测 CPU 架构、校验 SHA-256、创建 `webterm` 系统账号并启动服务。系统存在可用的 systemd 时使用 systemd，否则自动以后台进程运行，日志写入 `/var/log/webterm/webterm.log`。
 
-Only two optional environment variables are supported:
+默认监听 `127.0.0.1:7681`。未指定固定令牌时，程序会生成随机的一次性令牌并写入服务日志。
 
-- `WEBTERM_TOKEN`: fixed reusable login token. If omitted, a random one-time token is written to the service log.
-- `WEBTERM_PORT`: listening port, default `7681`.
+支持以下环境变量：
 
-Install with a fixed token:
+- `WEBTERM_TOKEN`：固定登录令牌。未设置时自动生成随机令牌。
+- `WEBTERM_PORT`：监听端口，默认值为 `7681`。
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | \
-  sudo WEBTERM_TOKEN='change-this-token' sh
-```
-
-Set both token and port:
+使用固定令牌安装：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | \
-  sudo WEBTERM_TOKEN='change-this-token' WEBTERM_PORT=8080 sh
+  sudo WEBTERM_TOKEN='请替换为安全令牌' sh
 ```
 
-View the random token when `WEBTERM_TOKEN` was omitted:
+同时指定令牌和端口：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | \
+  sudo WEBTERM_TOKEN='请替换为安全令牌' WEBTERM_PORT=8080 sh
+```
+
+未指定固定令牌时，可通过以下命令查看随机令牌：
 
 ```sh
 sudo journalctl -u webterm -n 30 --no-pager
 ```
 
-On systems without systemd, view the token and log with:
+无 systemd 的环境使用：
 
 ```sh
 sudo tail -n 30 /var/log/webterm/webterm.log
 ```
 
-After installation, edit `/etc/webterm/config.json` as needed and use:
+常用管理命令：
 
 ```sh
 sudo systemctl status webterm
@@ -66,34 +68,55 @@ sudo systemctl restart webterm
 sudo journalctl -u webterm -f
 ```
 
-## GitHub Releases
+## 一键卸载
 
-Pushing a `v*` tag runs the GitHub Actions workflow, executes `go vet` and all tests, builds Linux AMD64 and ARM64 binaries, generates `SHA256SUMS`, and publishes only the binaries and checksums as GitHub Release assets. The installer remains at `scripts/install.sh` and downloads the latest published binaries, so installer changes do not require a new release:
+通过管道执行卸载：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | sudo sh -s -- uninstall
+```
+
+使用本地脚本卸载：
+
+```sh
+sudo sh scripts/install.sh uninstall
+```
+
+卸载操作会停止 systemd、后台进程及旧版 Supervisor 管理的 TermDock，随后删除：
+
+- `/usr/local/bin/webterm` 和旧版 `/opt/webterm`
+- `/etc/webterm`
+- `/var/lib/webterm`
+- `/var/log/webterm`
+- `webterm.service` 和旧版 Supervisor 配置
+- `webterm` 系统用户和用户组
+
+卸载会删除配置、令牌、日志及运行目录，请先备份需要保留的数据。
+
+## GitHub Release
+
+推送 `v*` 标签会触发 GitHub Actions，运行检查和测试，构建 AMD64 与 ARM64 二进制文件，生成 `SHA256SUMS` 并发布 Release：
 
 ```sh
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-You can also open **Actions → Release → Run workflow**, enter a tag such as `v1.0.0`, and start the release manually. The workflow creates or updates the GitHub Release for the entered tag.
+也可以在 GitHub 的 **Actions → Release → Run workflow** 中输入版本标签手动发布。
 
-TermDock is a browser terminal backed directly by a local PTY. It does not require SSH or `sshd`.
+## 开发
 
-## Development
-
-```bash
+```sh
 go run ./cmd/webterm
 ```
 
-The server listens on `127.0.0.1:7681` and prints a one-time token. For direct local HTTP development, set `security.cookie_secure` to `false` in a permission-restricted JSON config file and pass `--config`.
+服务默认监听 `127.0.0.1:7681` 并输出一次性令牌。在本地 HTTP 环境开发时，可在权限受限的 JSON 配置文件中将 `security.cookie_secure` 设置为 `false`，然后通过 `--config` 加载。
 
-## Security boundaries
+## 安全边界
 
-- Anonymous terminal and status access is denied.
-- Authentication uses a single-use random token and signed, short-lived HttpOnly cookie.
-- WebSocket requests require a valid cookie and matching or explicitly trusted Origin.
-- PTY processes run with the service account's privileges and their process group is terminated on disconnect.
-- The default listener is loopback-only. Put HTTPS or Cloudflare Tunnel in front of it before remote use.
-- Never run the service as root unless root terminal access is explicitly intended.
-
-The implementation includes secure PTY sessions, authentication, tunnel lifecycle management, systemd packaging, and release artifacts. Clean-system platform validation and hosted release publication remain release-environment tasks.
+- 未认证用户不能访问终端和状态接口。
+- 认证使用随机令牌及短期、签名的 HttpOnly Cookie。
+- WebSocket 请求必须携带有效 Cookie，且 Origin 必须匹配或已加入信任列表。
+- PTY 进程使用服务账号权限运行，断开连接时终止对应进程组。
+- 默认仅监听回环地址，远程访问前应配置 HTTPS 或 Cloudflare Tunnel。
+- 除非明确需要 root 终端权限，否则不要以 root 身份运行服务。

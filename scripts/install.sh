@@ -9,14 +9,68 @@ LOG_DIR=/var/log/webterm
 SERVICE_FILE=/etc/systemd/system/webterm.service
 ENV_FILE=/etc/webterm/environment
 PID_FILE=/var/run/webterm.pid
+SUPERVISOR_FILE=/etc/supervisor/conf.d/webterm.conf
 WEBTERM_PORT=${WEBTERM_PORT:-7681}
-DOWNLOAD_DIR=$(mktemp -d)
-trap 'rm -rf "$DOWNLOAD_DIR"' EXIT HUP INT TERM
+ACTION=${1:-install}
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "This installer must run as root. Try: curl ... | sudo sh" >&2
+  echo "安装和卸载必须以 root 身份运行。" >&2
   exit 1
 fi
+
+uninstall() {
+  echo "正在卸载 TermDock..."
+
+  if command -v supervisorctl >/dev/null 2>&1; then
+    supervisorctl stop webterm >/dev/null 2>&1 || true
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now webterm.service >/dev/null 2>&1 || true
+  fi
+
+  if [ -f "$PID_FILE" ]; then
+    pid=$(cat "$PID_FILE" 2>/dev/null || true)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  fi
+
+  pkill -TERM -f '^/opt/webterm/webterm( |$)' 2>/dev/null || true
+  pkill -TERM -f '^/usr/local/bin/webterm( |$)' 2>/dev/null || true
+
+  rm -f "$SUPERVISOR_FILE" "$SERVICE_FILE" "$PID_FILE" "$INSTALL_BIN"
+  rm -rf /opt/webterm "$CONFIG_DIR" "$STATE_DIR" "$LOG_DIR"
+
+  if command -v supervisorctl >/dev/null 2>&1; then
+    supervisorctl reread >/dev/null 2>&1 || true
+    supervisorctl update >/dev/null 2>&1 || true
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl reset-failed webterm.service >/dev/null 2>&1 || true
+  fi
+
+  userdel webterm >/dev/null 2>&1 || true
+  groupdel webterm >/dev/null 2>&1 || true
+
+  echo "TermDock 已卸载完成。"
+}
+
+case "$ACTION" in
+  install) ;;
+  uninstall|remove)
+    uninstall
+    exit 0
+    ;;
+  *)
+    echo "用法: $0 [install|uninstall]" >&2
+    exit 1
+    ;;
+esac
+
+DOWNLOAD_DIR=$(mktemp -d)
+trap 'rm -rf "$DOWNLOAD_DIR"' EXIT HUP INT TERM
 
 case "$(uname -m)" in
   x86_64|amd64) ARCH=amd64 ;;
