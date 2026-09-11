@@ -29,11 +29,12 @@ type Server struct {
 }
 
 type Terminal struct {
-	Shell       string        `json:"shell"`
-	WorkingDir  string        `json:"working_directory"`
-	MaxSessions int           `json:"max_sessions"`
-	IdleTimeout time.Duration `json:"-"`
-	MaxLifetime time.Duration `json:"-"`
+	Shell            string        `json:"shell"`
+	WorkingDir       string        `json:"working_directory"`
+	MaxSessions      int           `json:"max_sessions"`
+	IdleTimeout      time.Duration `json:"-"`
+	MaxLifetime      time.Duration `json:"-"`
+	SessionRetention time.Duration `json:"-"`
 }
 
 type Security struct {
@@ -46,11 +47,12 @@ type Security struct {
 type diskConfig struct {
 	Server   Server `json:"server"`
 	Terminal struct {
-		Shell       string `json:"shell"`
-		WorkingDir  string `json:"working_directory"`
-		MaxSessions int    `json:"max_sessions"`
-		IdleTimeout string `json:"idle_timeout"`
-		MaxLifetime string `json:"max_lifetime"`
+		Shell            string `json:"shell"`
+		WorkingDir       string `json:"working_directory"`
+		MaxSessions      int    `json:"max_sessions"`
+		IdleTimeout      string `json:"idle_timeout"`
+		MaxLifetime      string `json:"max_lifetime"`
+		SessionRetention string `json:"session_retention"`
 	} `json:"terminal"`
 	Security   Security   `json:"security"`
 	Cloudflare Cloudflare `json:"cloudflare"`
@@ -58,8 +60,15 @@ type diskConfig struct {
 
 func Defaults() Config {
 	return Config{
-		Server:     Server{Listen: "127.0.0.1:7681"},
-		Terminal:   Terminal{Shell: defaultShell(), WorkingDir: defaultWorkingDir(), MaxSessions: 1, IdleTimeout: 15 * time.Minute, MaxLifetime: time.Hour},
+		Server: Server{Listen: "127.0.0.1:7681"},
+		Terminal: Terminal{
+			Shell:            defaultShell(),
+			WorkingDir:       defaultWorkingDir(),
+			MaxSessions:      1,
+			IdleTimeout:      0,
+			MaxLifetime:      0,
+			SessionRetention: 24 * time.Hour,
+		},
 		Security:   Security{CookieSecure: true, LoginRateLimit: 5, MaxMessageSize: 64 << 10},
 		Cloudflare: Cloudflare{Mode: "disabled", Binary: "/usr/local/bin/cloudflared", TokenFile: "/etc/webterm/cloudflare-token"},
 	}
@@ -83,9 +92,13 @@ func Load(path string) (Config, error) {
 		if err := json.Unmarshal(data, &disk); err != nil {
 			return Config{}, fmt.Errorf("decode configuration: %w", err)
 		}
-		merge(&cfg, disk)
+		if err := merge(&cfg, disk); err != nil {
+			return Config{}, err
+		}
 	}
-	applyEnvironment(&cfg)
+	if err := applyEnvironment(&cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, Validate(cfg)
 }
 
@@ -103,8 +116,8 @@ func Validate(cfg Config) error {
 	if cfg.Terminal.MaxSessions < 1 || cfg.Security.LoginRateLimit < 1 || cfg.Security.MaxMessageSize < 1024 {
 		return errors.New("session, rate, and message limits must be positive")
 	}
-	if cfg.Terminal.IdleTimeout <= 0 || cfg.Terminal.MaxLifetime <= 0 {
-		return errors.New("timeouts must be positive")
+	if cfg.Terminal.IdleTimeout < 0 || cfg.Terminal.MaxLifetime < 0 || cfg.Terminal.SessionRetention < 0 {
+		return errors.New("terminal timeouts must be zero or positive")
 	}
 	if cfg.Cloudflare.Mode != "disabled" && cfg.Cloudflare.Mode != "quick" && cfg.Cloudflare.Mode != "fixed" {
 		return errors.New("cloudflare mode must be disabled, quick, or fixed")
@@ -118,7 +131,7 @@ func Validate(cfg Config) error {
 	return nil
 }
 
-func merge(cfg *Config, disk diskConfig) {
+func merge(cfg *Config, disk diskConfig) error {
 	if disk.Server.Listen != "" {
 		cfg.Server.Listen = disk.Server.Listen
 	}
@@ -131,11 +144,15 @@ func merge(cfg *Config, disk diskConfig) {
 	if disk.Terminal.MaxSessions > 0 {
 		cfg.Terminal.MaxSessions = disk.Terminal.MaxSessions
 	}
-	if value, err := time.ParseDuration(disk.Terminal.IdleTimeout); err == nil && value > 0 {
-		cfg.Terminal.IdleTimeout = value
+	var err error
+	if cfg.Terminal.IdleTimeout, err = parseOptionalDuration("terminal.idle_timeout", disk.Terminal.IdleTimeout, cfg.Terminal.IdleTimeout); err != nil {
+		return err
 	}
-	if value, err := time.ParseDuration(disk.Terminal.MaxLifetime); err == nil && value > 0 {
-		cfg.Terminal.MaxLifetime = value
+	if cfg.Terminal.MaxLifetime, err = parseOptionalDuration("terminal.max_lifetime", disk.Terminal.MaxLifetime, cfg.Terminal.MaxLifetime); err != nil {
+		return err
+	}
+	if cfg.Terminal.SessionRetention, err = parseOptionalDuration("terminal.session_retention", disk.Terminal.SessionRetention, cfg.Terminal.SessionRetention); err != nil {
+		return err
 	}
 	if disk.Security.LoginRateLimit > 0 {
 		cfg.Security.LoginRateLimit = disk.Security.LoginRateLimit
@@ -156,9 +173,10 @@ func merge(cfg *Config, disk diskConfig) {
 	if disk.Cloudflare.TokenFile != "" {
 		cfg.Cloudflare.TokenFile = disk.Cloudflare.TokenFile
 	}
+	return nil
 }
 
-func applyEnvironment(cfg *Config) {
+func applyEnvironment(cfg *Config) error {
 	if value := os.Getenv("WEBTERM_LISTEN"); value != "" {
 		cfg.Server.Listen = value
 	}
@@ -171,11 +189,15 @@ func applyEnvironment(cfg *Config) {
 	if value, err := strconv.Atoi(os.Getenv("WEBTERM_MAX_SESSIONS")); err == nil && value > 0 {
 		cfg.Terminal.MaxSessions = value
 	}
-	if value, err := time.ParseDuration(os.Getenv("WEBTERM_IDLE_TIMEOUT")); err == nil && value > 0 {
-		cfg.Terminal.IdleTimeout = value
+	var err error
+	if cfg.Terminal.IdleTimeout, err = parseOptionalDuration("WEBTERM_IDLE_TIMEOUT", os.Getenv("WEBTERM_IDLE_TIMEOUT"), cfg.Terminal.IdleTimeout); err != nil {
+		return err
 	}
-	if value, err := time.ParseDuration(os.Getenv("WEBTERM_MAX_LIFETIME")); err == nil && value > 0 {
-		cfg.Terminal.MaxLifetime = value
+	if cfg.Terminal.MaxLifetime, err = parseOptionalDuration("WEBTERM_MAX_LIFETIME", os.Getenv("WEBTERM_MAX_LIFETIME"), cfg.Terminal.MaxLifetime); err != nil {
+		return err
+	}
+	if cfg.Terminal.SessionRetention, err = parseOptionalDuration("WEBTERM_SESSION_RETENTION", os.Getenv("WEBTERM_SESSION_RETENTION"), cfg.Terminal.SessionRetention); err != nil {
+		return err
 	}
 	if value := os.Getenv("WEBTERM_TUNNEL_MODE"); value != "" {
 		cfg.Cloudflare.Mode = value
@@ -186,6 +208,21 @@ func applyEnvironment(cfg *Config) {
 	if value := os.Getenv("WEBTERM_CLOUDFLARE_TOKEN_FILE"); value != "" {
 		cfg.Cloudflare.TokenFile = value
 	}
+	return nil
+}
+
+func parseOptionalDuration(name, value string, current time.Duration) (time.Duration, error) {
+	if value == "" {
+		return current, nil
+	}
+	if value == "0" {
+		return 0, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("%s must be 0 or a positive duration", name)
+	}
+	return parsed, nil
 }
 
 func defaultShell() string {

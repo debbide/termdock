@@ -338,11 +338,12 @@ func (server *Server) webSocket(writer http.ResponseWriter, request *http.Reques
 		_ = connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "terminal unavailable"))
 		return
 	}
-	if err := terminalSession.attach(connection); err != nil {
+	clientID, err := terminalSession.attach(connection)
+	if err != nil {
 		return
 	}
-	defer terminalSession.detach(connection)
-	server.bridge(request.Context(), connection, terminalSession)
+	defer terminalSession.detach(connection, clientID)
+	server.bridge(request.Context(), connection, terminalSession, clientID)
 }
 
 func (server *Server) terminalSession() (*persistentSession, error) {
@@ -351,7 +352,11 @@ func (server *Server) terminalSession() (*persistentSession, error) {
 	if server.session != nil {
 		select {
 		case <-server.session.closed:
+			// The PTY has already exited. Release its slot here before creating
+			// the replacement session. The cleanup goroutine checks the session
+			// identity, so it will not release the same slot a second time.
 			server.session = nil
+			server.limiter.Release()
 		default:
 			return server.session, nil
 		}
@@ -364,13 +369,19 @@ func (server *Server) terminalSession() (*persistentSession, error) {
 		server.limiter.Release()
 		return nil, err
 	}
-	server.session = newPersistentSession(ptySession)
+	server.session = newPersistentSession(ptySession, server.cfg.Terminal.SessionRetention)
 	current := server.session
 	go func() {
-		select {
-		case <-current.done:
-		case <-time.After(server.cfg.Terminal.MaxLifetime):
-			current.close()
+		if server.cfg.Terminal.MaxLifetime > 0 {
+			timer := time.NewTimer(server.cfg.Terminal.MaxLifetime)
+			defer timer.Stop()
+			select {
+			case <-current.done:
+			case <-timer.C:
+				current.close()
+			}
+		} else {
+			<-current.done
 		}
 		server.sessionMu.Lock()
 		if server.session == current {
@@ -391,9 +402,7 @@ func (server *Server) closeTerminalSession() {
 	}
 }
 
-func (server *Server) bridge(parent context.Context, connection *websocket.Conn, terminalSession *persistentSession) {
-	ctx, cancel := context.WithTimeout(parent, server.cfg.Terminal.MaxLifetime)
-	defer cancel()
+func (server *Server) bridge(parent context.Context, connection *websocket.Conn, terminalSession *persistentSession, clientID uint64) {
 	activity := make(chan struct{}, 1)
 	errorsChannel := make(chan error, 1)
 	heartbeat := time.NewTicker(30 * time.Second)
@@ -402,7 +411,10 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 		for {
 			messageType, data, err := connection.ReadMessage()
 			if err != nil {
-				errorsChannel <- err
+				select {
+				case errorsChannel <- err:
+				case <-parent.Done():
+				}
 				return
 			}
 			select {
@@ -426,38 +438,46 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 				}
 			}
 			if err != nil {
-				errorsChannel <- err
+				select {
+				case errorsChannel <- err:
+				case <-parent.Done():
+				}
 				return
 			}
 		}
 	}()
 
-	idle := time.NewTimer(server.cfg.Terminal.IdleTimeout)
-	defer idle.Stop()
+	var idleTimer *time.Timer
+	var idle <-chan time.Time
+	if server.cfg.Terminal.IdleTimeout > 0 {
+		idleTimer = time.NewTimer(server.cfg.Terminal.IdleTimeout)
+		idle = idleTimer.C
+		defer idleTimer.Stop()
+	}
 	for {
 		select {
-		case <-ctx.Done():
-			slog.Info("terminal session ended", "reason", "context", "error", ctx.Err())
+		case <-parent.Done():
 			return
 		case err := <-errorsChannel:
-			slog.Info("terminal session ended", "reason", "bridge error", "error", err)
+			slog.Info("terminal connection detached", "reason", "bridge error", "error", err)
 			return
 		case <-heartbeat.C:
-			err := terminalSession.ping(connection)
-			if err != nil {
-				slog.Info("terminal session ended", "reason", "heartbeat error", "error", err)
+			if err := terminalSession.ping(connection, clientID); err != nil {
+				slog.Info("terminal connection detached", "reason", "heartbeat error", "error", err)
 				return
 			}
 		case <-activity:
-			if !idle.Stop() {
-				select {
-				case <-idle.C:
-				default:
+			if idleTimer != nil {
+				if !idleTimer.Stop() {
+					select {
+					case <-idleTimer.C:
+					default:
+					}
 				}
+				idleTimer.Reset(server.cfg.Terminal.IdleTimeout)
 			}
-			idle.Reset(server.cfg.Terminal.IdleTimeout)
-		case <-idle.C:
-			slog.Info("terminal session ended", "reason", "idle timeout")
+		case <-idle:
+			slog.Info("terminal connection detached", "reason", "idle timeout")
 			return
 		}
 	}

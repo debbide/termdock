@@ -24,10 +24,14 @@ func Run(ctx context.Context, cfg config.Config) error {
 	var manager *auth.Manager
 	var token string
 	var err error
+	authLifetime := cfg.Terminal.MaxLifetime
+	if authLifetime <= 0 {
+		authLifetime = 30 * 24 * time.Hour
+	}
 	if fixedToken := os.Getenv("WEBTERM_ACCESS_TOKEN"); fixedToken != "" {
-		manager, token, err = auth.NewWithToken(cfg.Terminal.MaxLifetime, fixedToken)
+		manager, token, err = auth.NewWithToken(authLifetime, fixedToken)
 	} else {
-		manager, token, err = auth.New(cfg.Terminal.MaxLifetime)
+		manager, token, err = auth.New(authLifetime)
 	}
 	if err != nil {
 		return err

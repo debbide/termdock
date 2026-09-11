@@ -44,6 +44,21 @@ body { margin: 0; overflow: hidden; }
   background: radial-gradient(circle at top, #18181b 0%, var(--bg-base) 100%);
 }
 
+#connection-status {
+  display: inline-block;
+  margin-left: 0.65rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: #3f3f46;
+  color: var(--text-muted);
+}
+#connection-status[data-state="connected"] { background: #164e3e; color: #a7f3d0; }
+#connection-status[data-state="connecting"],
+#connection-status[data-state="reconnecting"] { background: #713f12; color: #fde68a; }
+#connection-status[data-state="error"] { background: #7f1d1d; color: #fecaca; }
+
 #login h1 {
   font-size: 3.5rem;
   font-weight: 800;
