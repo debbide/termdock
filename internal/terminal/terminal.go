@@ -17,11 +17,11 @@ type Terminal struct {
 }
 
 func Start(shell, workingDirectory string) (*Terminal, error) {
-	arguments := []string{"new-session", "-A", "-s", "termdock", "-c", workingDirectory, shell}
+	arguments := []string{}
 	if filepath.Base(shell) == "bash" {
 		arguments = append(arguments, "--noprofile", "--norc", "-i")
 	}
-	command := exec.Command("tmux", arguments...)
+	command := exec.Command(shell, arguments...)
 	command.Dir = workingDirectory
 	command.Env = append(os.Environ(),
 		"TERM=xterm-256color",
@@ -46,7 +46,7 @@ func (terminal *Terminal) Resize(columns, rows uint16) error {
 }
 func (terminal *Terminal) Close() error {
 	if terminal.process.Process != nil {
-		_ = terminal.process.Process.Signal(syscall.SIGTERM)
+		_ = syscall.Kill(-terminal.process.Process.Pid, syscall.SIGTERM)
 	}
 	_ = terminal.file.Close()
 	if err := terminal.process.Wait(); err != nil && !errors.Is(err, io.EOF) {

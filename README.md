@@ -31,8 +31,10 @@ curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/insta
 
 支持以下环境变量：
 
-- `WEBTERM_TOKEN`：固定登录令牌。未设置时自动生成随机令牌。
 - `WEBTERM_PORT`：监听端口，默认值为 `7681`。
+- `WEBTERM_TOKEN`：固定访问 Token；未提供时自动生成并在安装完成后明确显示。
+
+直接运行且终端可交互时，脚本只询问端口和 Token。通过管道运行时默认使用端口 `7681` 并自动生成 Token。
 
 使用固定令牌安装：
 
@@ -48,17 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/insta
   sudo WEBTERM_TOKEN='请替换为安全令牌' WEBTERM_PORT=8080 sh
 ```
 
-未指定固定令牌时，可通过以下命令查看随机令牌：
-
-```sh
-sudo journalctl -u webterm -n 30 --no-pager
-```
-
-无 systemd 的环境使用：
-
-```sh
-sudo tail -n 30 /var/log/webterm/webterm.log
-```
+安装完成后脚本会明确输出安装版本、运行模式、端口和 Token。脚本自动探测 systemd；可用时注册系统服务，否则以独立后台进程运行。
 
 常用管理命令：
 
