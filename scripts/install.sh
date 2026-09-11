@@ -8,6 +8,7 @@ STATE_DIR=/var/lib/webterm
 LOG_DIR=/var/log/webterm
 SERVICE_FILE=/etc/systemd/system/webterm.service
 ENV_FILE=/etc/webterm/environment
+PID_FILE=/var/run/webterm.pid
 WEBTERM_PORT=${WEBTERM_PORT:-7681}
 DOWNLOAD_DIR=$(mktemp -d)
 trap 'rm -rf "$DOWNLOAD_DIR"' EXIT HUP INT TERM
@@ -87,7 +88,24 @@ fi
 chown root:webterm "$ENV_FILE"
 chmod 0640 "$ENV_FILE"
 
-cat >"$SERVICE_FILE" <<EOF
+start_standalone() {
+  if [ -f "$PID_FILE" ]; then
+    old_pid=$(cat "$PID_FILE" 2>/dev/null || true)
+    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+      kill "$old_pid"
+    fi
+  fi
+  if [ -n "${WEBTERM_TOKEN:-}" ]; then
+    WEBTERM_ACCESS_TOKEN=$WEBTERM_TOKEN nohup "$INSTALL_BIN" --config "$CONFIG_DIR/config.json" >>"$LOG_DIR/webterm.log" 2>&1 &
+  else
+    nohup "$INSTALL_BIN" --config "$CONFIG_DIR/config.json" >>"$LOG_DIR/webterm.log" 2>&1 &
+  fi
+  echo $! >"$PID_FILE"
+  chmod 0644 "$PID_FILE"
+}
+
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ] && systemctl show-environment >/dev/null 2>&1; then
+  cat >"$SERVICE_FILE" <<EOF
 [Unit]
 Description=TermDock secure web terminal
 After=network-online.target
@@ -118,16 +136,30 @@ AmbientCapabilities=
 [Install]
 WantedBy=multi-user.target
 EOF
-
-systemctl daemon-reload
-systemctl enable webterm.service
-systemctl restart webterm.service
+  systemctl daemon-reload
+  systemctl enable webterm.service
+  systemctl restart webterm.service
+  START_MODE=systemd
+else
+  start_standalone
+  START_MODE=standalone
+fi
 echo "TermDock installation completed."
 echo "Config: $CONFIG_DIR/config.json"
 echo "Listen: 127.0.0.1:$WEBTERM_PORT"
 if [ -n "${WEBTERM_TOKEN:-}" ]; then
   echo "Access token: configured"
 else
-  echo "Access token: randomly generated; view it with: journalctl -u webterm -n 30 --no-pager"
+  if [ "$START_MODE" = systemd ]; then
+    echo "Access token: randomly generated; view it with: journalctl -u webterm -n 30 --no-pager"
+  else
+    echo "Access token: randomly generated; view it with: tail -n 30 $LOG_DIR/webterm.log"
+  fi
 fi
-echo "Status: systemctl status webterm"
+if [ "$START_MODE" = systemd ]; then
+  echo "Status: systemctl status webterm"
+else
+  echo "Started without systemd. PID: $(cat "$PID_FILE")"
+  echo "Log: $LOG_DIR/webterm.log"
+  echo "Stop: kill $(cat "$PID_FILE")"
+fi

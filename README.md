@@ -25,7 +25,7 @@ TermDock publishes static Linux binaries for AMD64 (`x86_64`) and ARM64 (`aarch6
 curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | sudo sh
 ```
 
-The installer detects the CPU architecture, verifies the SHA-256 checksum, creates the `webterm` service account, installs the systemd unit, and starts the service. Without parameters, TermDock listens on `127.0.0.1:7681` and prints a random one-time token to the service log.
+The installer detects the CPU architecture, verifies the SHA-256 checksum, creates the `webterm` service account, and starts TermDock. It uses systemd when a working systemd instance is available, otherwise it automatically falls back to a background process with logs in `/var/log/webterm/webterm.log`. Without parameters, TermDock listens on `127.0.0.1:7681` and prints a random one-time token to the service log.
 
 Only two optional environment variables are supported:
 
@@ -50,6 +50,12 @@ View the random token when `WEBTERM_TOKEN` was omitted:
 
 ```sh
 sudo journalctl -u webterm -n 30 --no-pager
+```
+
+On systems without systemd, view the token and log with:
+
+```sh
+sudo tail -n 30 /var/log/webterm/webterm.log
 ```
 
 After installation, edit `/etc/webterm/config.json` as needed and use:
