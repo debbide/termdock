@@ -25,29 +25,32 @@ TermDock publishes static Linux binaries for AMD64 (`x86_64`) and ARM64 (`aarch6
 curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | sudo sh
 ```
 
-When attached to a terminal, the installer interactively asks whether to install `cloudflared` if it is missing. It detects the CPU architecture, verifies the SHA-256 checksum, creates the `webterm` service account, installs the systemd unit, and starts the service.
+The installer detects the CPU architecture, verifies the SHA-256 checksum, creates the `webterm` service account, installs the systemd unit, and starts the service. Without parameters, TermDock listens on `127.0.0.1:7681` and prints a random one-time token to the service log.
 
-For unattended installation, configure it with environment variables:
+Only two optional environment variables are supported:
 
-```sh
-curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | \
-  sudo WEBTERM_INSTALL_CLOUDFLARED=yes WEBTERM_START_SERVICE=yes sh
-```
+- `WEBTERM_TOKEN`: fixed reusable login token. If omitted, a random one-time token is written to the service log.
+- `WEBTERM_PORT`: listening port, default `7681`.
 
-Install a specific release instead of the latest:
+Install with a fixed token:
 
 ```sh
 curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | \
-  sudo WEBTERM_VERSION=v1.0.0 sh
+  sudo WEBTERM_TOKEN='change-this-token' sh
 ```
 
-Supported installer variables:
+Set both token and port:
 
-- `WEBTERM_VERSION`: `latest`, `v1.0.0`, or `1.0.0`.
-- `WEBTERM_INSTALL_CLOUDFLARED`: `ask` (default), `yes`, or `no`.
-- `WEBTERM_START_SERVICE`: `yes` (default) or `no`.
-- `INSTALL_BIN`, `CONFIG_DIR`, `STATE_DIR`, and `LOG_DIR`: override installation paths.
-- `RELEASE_BASE_URL_OVERRIDE`: use a mirror or custom Release asset base URL.
+```sh
+curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | \
+  sudo WEBTERM_TOKEN='change-this-token' WEBTERM_PORT=8080 sh
+```
+
+View the random token when `WEBTERM_TOKEN` was omitted:
+
+```sh
+sudo journalctl -u webterm -n 30 --no-pager
+```
 
 After installation, edit `/etc/webterm/config.json` as needed and use:
 

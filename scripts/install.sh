@@ -1,16 +1,14 @@
 #!/bin/sh
 set -eu
 
-REPO=${WEBTERM_REPO:-debbide/termdock}
-INSTALL_BIN=${INSTALL_BIN:-/usr/local/bin/webterm}
-CLOUDFLARED_BIN=${CLOUDFLARED_BIN:-/usr/local/bin/cloudflared}
-CONFIG_DIR=${CONFIG_DIR:-/etc/webterm}
-STATE_DIR=${STATE_DIR:-/var/lib/webterm}
-LOG_DIR=${LOG_DIR:-/var/log/webterm}
-SERVICE_FILE=${SERVICE_FILE:-/etc/systemd/system/webterm.service}
-WEBTERM_VERSION=${WEBTERM_VERSION:-latest}
-WEBTERM_INSTALL_CLOUDFLARED=${WEBTERM_INSTALL_CLOUDFLARED:-ask}
-WEBTERM_START_SERVICE=${WEBTERM_START_SERVICE:-yes}
+REPO=debbide/termdock
+INSTALL_BIN=/usr/local/bin/webterm
+CONFIG_DIR=/etc/webterm
+STATE_DIR=/var/lib/webterm
+LOG_DIR=/var/log/webterm
+SERVICE_FILE=/etc/systemd/system/webterm.service
+ENV_FILE=/etc/webterm/environment
+WEBTERM_PORT=${WEBTERM_PORT:-7681}
 DOWNLOAD_DIR=$(mktemp -d)
 trap 'rm -rf "$DOWNLOAD_DIR"' EXIT HUP INT TERM
 
@@ -46,30 +44,15 @@ download() {
   fi
 }
 
-ask_yes_no() {
-  prompt=$1
-  default=$2
-  if [ ! -t 0 ]; then
-    [ "$default" = yes ]
-    return
-  fi
-  if [ "$default" = yes ]; then suffix="[Y/n]"; else suffix="[y/N]"; fi
-  printf "%s %s " "$prompt" "$suffix" >/dev/tty
-  read answer </dev/tty || answer=
-  case "$answer" in
-    y|Y|yes|YES) return 0 ;;
-    n|N|no|NO) return 1 ;;
-    "") [ "$default" = yes ]; return ;;
-    *) return 1 ;;
-  esac
-}
-
-case "$WEBTERM_VERSION" in
-  latest) RELEASE_BASE_URL="https://github.com/$REPO/releases/latest/download" ;;
-  v*) RELEASE_BASE_URL="https://github.com/$REPO/releases/download/$WEBTERM_VERSION" ;;
-  *) RELEASE_BASE_URL="https://github.com/$REPO/releases/download/v$WEBTERM_VERSION" ;;
+case "$WEBTERM_PORT" in
+  ""|*[!0-9]*) echo "WEBTERM_PORT must be a number" >&2; exit 1 ;;
 esac
-RELEASE_BASE_URL=${RELEASE_BASE_URL_OVERRIDE:-$RELEASE_BASE_URL}
+if [ "$WEBTERM_PORT" -lt 1 ] || [ "$WEBTERM_PORT" -gt 65535 ]; then
+  echo "WEBTERM_PORT must be between 1 and 65535" >&2
+  exit 1
+fi
+
+RELEASE_BASE_URL="https://github.com/$REPO/releases/latest/download"
 
 echo "Installing TermDock ($ARCH) from $RELEASE_BASE_URL"
 download "$RELEASE_BASE_URL/webterm-linux-$ARCH" "$DOWNLOAD_DIR/webterm"
@@ -87,25 +70,22 @@ install -d -m 0750 -o root -g webterm "$CONFIG_DIR"
 install -d -m 0750 -o webterm -g webterm "$STATE_DIR" "$LOG_DIR"
 install -m 0755 "$DOWNLOAD_DIR/webterm" "$INSTALL_BIN"
 
-install_cloudflared=no
-case "$WEBTERM_INSTALL_CLOUDFLARED" in
-  yes|true|1) install_cloudflared=yes ;;
-  no|false|0) ;;
-  ask) if ! command -v cloudflared >/dev/null 2>&1 && [ ! -x "$CLOUDFLARED_BIN" ] && ask_yes_no "Install cloudflared?" yes; then install_cloudflared=yes; fi ;;
-  *) echo "WEBTERM_INSTALL_CLOUDFLARED must be ask, yes, or no" >&2; exit 1 ;;
-esac
-if [ "$install_cloudflared" = yes ]; then
-  download "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH" "$DOWNLOAD_DIR/cloudflared"
-  install -m 0755 "$DOWNLOAD_DIR/cloudflared" "$CLOUDFLARED_BIN"
-fi
-
-if [ ! -f "$CONFIG_DIR/config.json" ]; then
-  cat >"$CONFIG_DIR/config.json" <<EOF
-{"server":{"listen":"127.0.0.1:7681"},"terminal":{"shell":"/bin/bash","working_directory":"$STATE_DIR","max_sessions":1,"idle_timeout":"15m","max_lifetime":"1h"},"security":{"trusted_origins":[],"cookie_secure":true,"login_rate_limit":5,"max_message_size":65536},"cloudflare":{"mode":"disabled","binary":"$CLOUDFLARED_BIN","token_file":"$CONFIG_DIR/cloudflare-token"}}
+cat >"$CONFIG_DIR/config.json" <<EOF
+{"server":{"listen":"127.0.0.1:$WEBTERM_PORT"},"terminal":{"shell":"/bin/bash","working_directory":"$STATE_DIR","max_sessions":1,"idle_timeout":"15m","max_lifetime":"1h"},"security":{"trusted_origins":[],"cookie_secure":true,"login_rate_limit":5,"max_message_size":65536},"cloudflare":{"mode":"disabled","binary":"/usr/local/bin/cloudflared","token_file":"$CONFIG_DIR/cloudflare-token"}}
 EOF
-  chown root:webterm "$CONFIG_DIR/config.json"
-  chmod 0640 "$CONFIG_DIR/config.json"
+chown root:webterm "$CONFIG_DIR/config.json"
+chmod 0640 "$CONFIG_DIR/config.json"
+
+if [ -n "${WEBTERM_TOKEN:-}" ]; then
+  case "$WEBTERM_TOKEN" in
+    *"\n"*) echo "WEBTERM_TOKEN must be a single line" >&2; exit 1 ;;
+  esac
+  printf "WEBTERM_ACCESS_TOKEN=%s\n" "$WEBTERM_TOKEN" >"$ENV_FILE"
+else
+  : >"$ENV_FILE"
 fi
+chown root:webterm "$ENV_FILE"
+chmod 0640 "$ENV_FILE"
 
 cat >"$SERVICE_FILE" <<EOF
 [Unit]
@@ -117,6 +97,7 @@ Wants=network-online.target
 Type=simple
 User=webterm
 Group=webterm
+EnvironmentFile=-$ENV_FILE
 ExecStart=$INSTALL_BIN --config $CONFIG_DIR/config.json
 Restart=on-failure
 RestartSec=5s
@@ -140,11 +121,13 @@ EOF
 
 systemctl daemon-reload
 systemctl enable webterm.service
-case "$WEBTERM_START_SERVICE" in
-  yes|true|1) systemctl restart webterm.service ;;
-  no|false|0) ;;
-  *) echo "WEBTERM_START_SERVICE must be yes or no" >&2; exit 1 ;;
-esac
+systemctl restart webterm.service
 echo "TermDock installation completed."
 echo "Config: $CONFIG_DIR/config.json"
+echo "Listen: 127.0.0.1:$WEBTERM_PORT"
+if [ -n "${WEBTERM_TOKEN:-}" ]; then
+  echo "Access token: configured"
+else
+  echo "Access token: randomly generated; view it with: journalctl -u webterm -n 30 --no-pager"
+fi
 echo "Status: systemctl status webterm"
