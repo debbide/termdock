@@ -66,6 +66,8 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
+You can also open **Actions → Release → Run workflow**, enter a tag such as `v1.0.0`, and start the release manually. The workflow creates or updates the GitHub Release for the entered tag.
+
 TermDock is a browser terminal backed directly by a local PTY. It does not require SSH or `sshd`.
 
 ## Development
