@@ -57,6 +57,18 @@ func TestWebSocketRejectsMissingOrInvalidOrigin(t *testing.T) {
 	}
 }
 
+func TestValidOriginAcceptsForwardedHost(t *testing.T) {
+	server, _ := newTestServer(t)
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:7681/api/terminal/ws", nil)
+	request.Host = "127.0.0.1:7681"
+	request.Header.Set("Origin", "https://mc.bbe.pp.ua")
+	request.Header.Set("X-Forwarded-Host", "mc.bbe.pp.ua")
+
+	if !server.validOrigin(request) {
+		t.Fatal("expected forwarded host to satisfy origin validation")
+	}
+}
+
 func TestHealthDoesNotLeakDetails(t *testing.T) {
 	server, _ := newTestServer(t)
 	response := httptest.NewRecorder()

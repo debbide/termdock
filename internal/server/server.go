@@ -437,7 +437,11 @@ func (server *Server) validOrigin(request *http.Request) bool {
 	if err != nil || parsed.Host == "" {
 		return false
 	}
-	if strings.EqualFold(parsed.Host, request.Host) {
+	requestHost := request.Host
+	if forwardedHost := strings.TrimSpace(strings.Split(request.Header.Get("X-Forwarded-Host"), ",")[0]); forwardedHost != "" {
+		requestHost = forwardedHost
+	}
+	if strings.EqualFold(parsed.Host, requestHost) {
 		return true
 	}
 	for _, trusted := range server.cfg.Security.TrustedOrigins {
