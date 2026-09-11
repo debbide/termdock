@@ -19,7 +19,7 @@ die() {
 }
 
 is_interactive() {
-  [ -r /dev/tty ] && [ -w /dev/tty ]
+  [ -t 0 ] && [ -t 1 ]
 }
 
 prompt() {
