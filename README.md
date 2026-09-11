@@ -17,15 +17,54 @@ Run locally with:
 
 See `docs/quick-start.md`, `docs/fixed-tunnel.md`, and `docs/security.md` for deployment details. Installation assets are provided in `scripts/` and `packaging/systemd/`.
 
-For release-based installation on Debian or Ubuntu, publish the files produced by `make release`, then run:
+## One-command installation
+
+TermDock publishes static Linux binaries for AMD64 (`x86_64`) and ARM64 (`aarch64`). On Debian or Ubuntu, install the latest GitHub Release with:
 
 ```sh
-curl -fsSL https://example.com/install.sh | sudo RELEASE_BASE_URL=https://example.com sh
+curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | sudo sh
 ```
 
-The installer detects amd64 or arm64, verifies the TermDock SHA-256 checksum, installs `cloudflared` when missing, creates the service account, and starts the systemd service.
+When attached to a terminal, the installer interactively asks whether to install `cloudflared` if it is missing. It detects the CPU architecture, verifies the SHA-256 checksum, creates the `webterm` service account, installs the systemd unit, and starts the service.
 
-Pushing a `v*` tag runs the GitHub Actions release workflow, executes vet and tests, builds both Linux architectures, and publishes the binaries, checksum file, and installer as GitHub Release assets.
+For unattended installation, configure it with environment variables:
+
+```sh
+curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | \
+  sudo WEBTERM_INSTALL_CLOUDFLARED=yes WEBTERM_START_SERVICE=yes sh
+```
+
+Install a specific release instead of the latest:
+
+```sh
+curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | \
+  sudo WEBTERM_VERSION=v1.0.0 sh
+```
+
+Supported installer variables:
+
+- `WEBTERM_VERSION`: `latest`, `v1.0.0`, or `1.0.0`.
+- `WEBTERM_INSTALL_CLOUDFLARED`: `ask` (default), `yes`, or `no`.
+- `WEBTERM_START_SERVICE`: `yes` (default) or `no`.
+- `INSTALL_BIN`, `CONFIG_DIR`, `STATE_DIR`, and `LOG_DIR`: override installation paths.
+- `RELEASE_BASE_URL_OVERRIDE`: use a mirror or custom Release asset base URL.
+
+After installation, edit `/etc/webterm/config.json` as needed and use:
+
+```sh
+sudo systemctl status webterm
+sudo systemctl restart webterm
+sudo journalctl -u webterm -f
+```
+
+## GitHub Releases
+
+Pushing a `v*` tag runs the GitHub Actions workflow, executes `go vet` and all tests, builds Linux AMD64 and ARM64 binaries, generates `SHA256SUMS`, and publishes the binaries plus the one-command installer as GitHub Release assets:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 TermDock is a browser terminal backed directly by a local PTY. It does not require SSH or `sshd`.
 
