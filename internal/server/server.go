@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -27,11 +28,13 @@ import (
 const cookieName = "webterm_session"
 
 type Server struct {
-	cfg     config.Config
-	auth    *auth.Manager
-	limiter *session.Limiter
-	assets  fs.FS
-	started time.Time
+	cfg       config.Config
+	auth      *auth.Manager
+	limiter   *session.Limiter
+	assets    fs.FS
+	started   time.Time
+	sessionMu sync.Mutex
+	session   *persistentSession
 }
 
 func New(cfg config.Config, manager *auth.Manager, assets fs.FS) *Server {
@@ -308,6 +311,7 @@ func (server *Server) terminate(writer http.ResponseWriter, request *http.Reques
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	server.closeTerminalSession()
 	server.logout(writer, request)
 }
 
@@ -320,12 +324,6 @@ func (server *Server) webSocket(writer http.ResponseWriter, request *http.Reques
 		http.Error(writer, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !server.limiter.Acquire() {
-		http.Error(writer, "session limit reached", http.StatusTooManyRequests)
-		return
-	}
-	defer server.limiter.Release()
-
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	connection, err := upgrader.Upgrade(writer, request, nil)
 	if err != nil {
@@ -334,42 +332,72 @@ func (server *Server) webSocket(writer http.ResponseWriter, request *http.Reques
 	defer connection.Close()
 	connection.SetReadLimit(server.cfg.Security.MaxMessageSize)
 
-	ptySession, err := terminal.Start(server.cfg.Terminal.Shell, server.cfg.Terminal.WorkingDir)
+	terminalSession, err := server.terminalSession()
 	if err != nil {
 		slog.Error("terminal start failed", "shell", server.cfg.Terminal.Shell, "working_directory", server.cfg.Terminal.WorkingDir, "error", err)
 		_ = connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "terminal unavailable"))
 		return
 	}
-	defer ptySession.Close()
-	server.bridge(request.Context(), connection, ptySession)
+	if err := terminalSession.attach(connection); err != nil {
+		return
+	}
+	defer terminalSession.detach(connection)
+	server.bridge(request.Context(), connection, terminalSession)
 }
 
-func (server *Server) bridge(parent context.Context, connection *websocket.Conn, ptySession *terminal.Terminal) {
+func (server *Server) terminalSession() (*persistentSession, error) {
+	server.sessionMu.Lock()
+	defer server.sessionMu.Unlock()
+	if server.session != nil {
+		select {
+		case <-server.session.closed:
+			server.session = nil
+		default:
+			return server.session, nil
+		}
+	}
+	if !server.limiter.Acquire() {
+		return nil, errors.New("session limit reached")
+	}
+	ptySession, err := terminal.Start(server.cfg.Terminal.Shell, server.cfg.Terminal.WorkingDir)
+	if err != nil {
+		server.limiter.Release()
+		return nil, err
+	}
+	server.session = newPersistentSession(ptySession)
+	current := server.session
+	go func() {
+		select {
+		case <-current.done:
+		case <-time.After(server.cfg.Terminal.MaxLifetime):
+			current.close()
+		}
+		server.sessionMu.Lock()
+		if server.session == current {
+			server.session = nil
+			server.limiter.Release()
+		}
+		server.sessionMu.Unlock()
+	}()
+	return current, nil
+}
+
+func (server *Server) closeTerminalSession() {
+	server.sessionMu.Lock()
+	current := server.session
+	server.sessionMu.Unlock()
+	if current != nil {
+		current.close()
+	}
+}
+
+func (server *Server) bridge(parent context.Context, connection *websocket.Conn, terminalSession *persistentSession) {
 	ctx, cancel := context.WithTimeout(parent, server.cfg.Terminal.MaxLifetime)
 	defer cancel()
 	activity := make(chan struct{}, 1)
-	errorsChannel := make(chan error, 2)
-	var writeMutex sync.Mutex
+	errorsChannel := make(chan error, 1)
 	heartbeat := time.NewTicker(30 * time.Second)
 	defer heartbeat.Stop()
-
-	go func() {
-		buffer := make([]byte, 32<<10)
-		for {
-			count, err := ptySession.Read(buffer)
-			if err != nil {
-				errorsChannel <- err
-				return
-			}
-			writeMutex.Lock()
-			err = connection.WriteMessage(websocket.BinaryMessage, buffer[:count])
-			writeMutex.Unlock()
-			if err != nil {
-				errorsChannel <- err
-				return
-			}
-		}
-	}()
 	go func() {
 		for {
 			messageType, data, err := connection.ReadMessage()
@@ -383,7 +411,7 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 			}
 			switch messageType {
 			case websocket.BinaryMessage:
-				_, err = ptySession.Write(data)
+				err = terminalSession.write(data)
 			case websocket.TextMessage:
 				var control struct {
 					Type string `json:"type"`
@@ -394,7 +422,7 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 					continue
 				}
 				if control.Type == "resize" {
-					err = ptySession.Resize(control.Cols, control.Rows)
+					err = terminalSession.resize(control.Cols, control.Rows)
 				}
 			}
 			if err != nil {
@@ -415,9 +443,7 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 			slog.Info("terminal session ended", "reason", "bridge error", "error", err)
 			return
 		case <-heartbeat.C:
-			writeMutex.Lock()
-			err := connection.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
-			writeMutex.Unlock()
+			err := terminalSession.ping(connection)
 			if err != nil {
 				slog.Info("terminal session ended", "reason", "heartbeat error", "error", err)
 				return
