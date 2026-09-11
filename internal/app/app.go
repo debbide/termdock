@@ -1,0 +1,65 @@
+package app
+
+import (
+	"context"
+	"embed"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
+	"webterm-cf/internal/auth"
+	"webterm-cf/internal/config"
+	"webterm-cf/internal/server"
+	"webterm-cf/internal/tunnel"
+)
+
+//go:embed static/*
+var static embed.FS
+
+func Run(ctx context.Context, cfg config.Config) error {
+	var manager *auth.Manager
+	var token string
+	var err error
+	if fixedToken := os.Getenv("WEBTERM_ACCESS_TOKEN"); fixedToken != "" {
+		manager, token, err = auth.NewWithToken(cfg.Terminal.MaxLifetime, fixedToken)
+	} else {
+		manager, token, err = auth.New(cfg.Terminal.MaxLifetime)
+	}
+	if err != nil {
+		return err
+	}
+	assets, err := fs.Sub(static, "static")
+	if err != nil {
+		return err
+	}
+	httpServer := &http.Server{Addr: cfg.Server.Listen, Handler: server.New(cfg, manager, assets).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 0, IdleTimeout: 60 * time.Second}
+	tunnelManager := tunnel.New()
+	publicURL, err := tunnelManager.Start(ctx, cfg.Cloudflare.Binary, cfg.Cloudflare.Mode, cfg.Server.Listen, cfg.Cloudflare.TokenFile)
+	if err != nil {
+		return fmt.Errorf("start cloudflare tunnel: %w", err)
+	}
+	defer tunnelManager.Stop()
+
+	slog.Info("webterm starting", "listen", cfg.Server.Listen)
+	if publicURL != "" {
+		fmt.Printf("Public URL: %s\n", publicURL)
+	}
+	fmt.Printf("One-time token: %s\n", token)
+	errChannel := make(chan error, 1)
+	go func() { errChannel <- httpServer.ListenAndServe() }()
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return httpServer.Shutdown(shutdownCtx)
+	case err := <-errChannel:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+}

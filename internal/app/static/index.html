@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TermDock</title>
+  <link rel="stylesheet" href="/xterm.css?v=20260911-2">
+  <link rel="stylesheet" href="/style.css?v=20260911-8">
+</head>
+<body>
+  <main id="login">
+    <h1>TermDock</h1>
+    <p>请输入服务器显示的一次性令牌。</p>
+    <form>
+      <input id="token" type="password" autocomplete="one-time-code" required>
+      <button>连接</button>
+    </form>
+    <p id="error" role="alert"></p>
+  </main>
+  <main id="terminal" hidden>
+    <header><span>TermDock</span><nav><button id="files-tab" class="active">文件管理</button><button id="logout">退出登录</button></nav></header>
+    <div id="workspace">
+      <section id="terminal-panel"><div id="screen" tabindex="0"></div></section>
+      <aside id="files-panel">
+        <div class="panel-title"><strong>SFTP 文件管理</strong><button id="refresh-files">刷新</button></div>
+        <div class="file-toolbar"><button id="parent">上级目录</button><input id="path" value="/"><button id="open-path">打开</button><button id="new-directory">新建文件夹</button><label class="upload">上传<input id="upload" type="file" hidden></label></div>
+        <p id="file-error" role="alert"></p>
+        <div class="file-table"><table><thead><tr><th>名称</th><th>大小</th><th>权限</th><th>修改时间</th><th>操作</th></tr></thead><tbody id="files"></tbody></table></div>
+      </aside>
+    </div>
+  </main>
+  <dialog id="editor"><form method="dialog" class="editor-window"><div class="editor-title"><strong id="editor-name">编辑文件</strong><button value="cancel">关闭</button></div><textarea id="editor-content" spellcheck="false"></textarea><p id="editor-error" role="alert"></p><div class="editor-actions"><button type="button" id="save-file">保存</button></div></form></dialog>
+  <script src="/xterm.js?v=20260911-2"></script>
+  <script src="/xterm-addon-fit.js?v=20260911-2"></script>
+  <script src="/app.js?v=20260911-4"></script>
+</body>
+</html>

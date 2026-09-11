@@ -1,0 +1,1 @@
+{"server":{"listen":"127.0.0.1:7681"},"terminal":{"shell":"/bin/bash","working_directory":"/home/webterm","max_sessions":1,"idle_timeout":"15m","max_lifetime":"1h"},"security":{"trusted_origins":[],"cookie_secure":true,"login_rate_limit":5,"max_message_size":65536},"cloudflare":{"mode":"disabled","binary":"/usr/local/bin/cloudflared","token_file":"/etc/webterm/cloudflare-token"}}
