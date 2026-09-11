@@ -350,6 +350,8 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 	activity := make(chan struct{}, 1)
 	errorsChannel := make(chan error, 2)
 	var writeMutex sync.Mutex
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
 
 	go func() {
 		buffer := make([]byte, 32<<10)
@@ -412,6 +414,14 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 		case err := <-errorsChannel:
 			slog.Info("terminal session ended", "reason", "bridge error", "error", err)
 			return
+		case <-heartbeat.C:
+			writeMutex.Lock()
+			err := connection.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
+			writeMutex.Unlock()
+			if err != nil {
+				slog.Info("terminal session ended", "reason", "heartbeat error", "error", err)
+				return
+			}
 		case <-activity:
 			if !idle.Stop() {
 				select {
