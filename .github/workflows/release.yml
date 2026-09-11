@@ -50,4 +50,3 @@ jobs:
             dist/webterm-linux-amd64
             dist/webterm-linux-arm64
             dist/SHA256SUMS
-            dist/install.sh

@@ -11,6 +11,4 @@ for ARCH in amd64 arm64; do
 done
 
 (cd "$OUTPUT_DIR" && sha256sum webterm-linux-* > SHA256SUMS)
-cp scripts/install.sh "$OUTPUT_DIR/install.sh"
-chmod 0755 "$OUTPUT_DIR/install.sh"
 echo "Release artifacts written to $OUTPUT_DIR"

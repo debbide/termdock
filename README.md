@@ -22,7 +22,7 @@ See `docs/quick-start.md`, `docs/fixed-tunnel.md`, and `docs/security.md` for de
 TermDock publishes static Linux binaries for AMD64 (`x86_64`) and ARM64 (`aarch64`). On Debian or Ubuntu, install the latest GitHub Release with:
 
 ```sh
-curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | sudo sh
 ```
 
 The installer detects the CPU architecture, verifies the SHA-256 checksum, creates the `webterm` service account, and starts TermDock. It uses systemd when a working systemd instance is available, otherwise it automatically falls back to a background process with logs in `/var/log/webterm/webterm.log`. Without parameters, TermDock listens on `127.0.0.1:7681` and prints a random one-time token to the service log.
@@ -35,14 +35,14 @@ Only two optional environment variables are supported:
 Install with a fixed token:
 
 ```sh
-curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | \
   sudo WEBTERM_TOKEN='change-this-token' sh
 ```
 
 Set both token and port:
 
 ```sh
-curl -fsSL https://github.com/debbide/termdock/releases/latest/download/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | \
   sudo WEBTERM_TOKEN='change-this-token' WEBTERM_PORT=8080 sh
 ```
 
@@ -68,7 +68,7 @@ sudo journalctl -u webterm -f
 
 ## GitHub Releases
 
-Pushing a `v*` tag runs the GitHub Actions workflow, executes `go vet` and all tests, builds Linux AMD64 and ARM64 binaries, generates `SHA256SUMS`, and publishes the binaries plus the one-command installer as GitHub Release assets:
+Pushing a `v*` tag runs the GitHub Actions workflow, executes `go vet` and all tests, builds Linux AMD64 and ARM64 binaries, generates `SHA256SUMS`, and publishes only the binaries and checksums as GitHub Release assets. The installer remains at `scripts/install.sh` and downloads the latest published binaries, so installer changes do not require a new release:
 
 ```sh
 git tag v1.0.0
