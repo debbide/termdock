@@ -57,6 +57,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/files", server.deleteFile)
 	mux.HandleFunc("POST /api/files/upload", server.uploadFile)
 	mux.HandleFunc("POST /api/files/directory", server.createDirectory)
+	mux.HandleFunc("POST /api/files/archive", server.archiveFile)
+	mux.HandleFunc("POST /api/files/operations", server.fileOperation)
 	mux.Handle("/", http.FileServer(http.FS(server.assets)))
 	return securityHeaders(mux)
 }

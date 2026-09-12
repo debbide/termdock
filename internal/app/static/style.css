@@ -11,11 +11,11 @@
   --danger: #ef4444;
   --danger-hover: #f87171;
   --success: #10b981;
-  
+
   --radius-sm: 6px;
   --radius-md: 12px;
   --radius-lg: 16px;
-  
+
   --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.7);
   --blur: blur(16px);
@@ -154,13 +154,13 @@ header span {
   -webkit-text-fill-color: transparent;
 }
 
-nav { 
-  display: flex; 
-  gap: 0.25rem; 
-  background: rgba(24, 24, 27, 0.5); 
-  padding: 0.35rem; 
-  border-radius: var(--radius-md); 
-  border: 1px solid var(--border-color); 
+nav {
+  display: flex;
+  gap: 0.25rem;
+  background: rgba(24, 24, 27, 0.5);
+  padding: 0.35rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
   backdrop-filter: var(--blur);
 }
 nav button { border: none; background: transparent; padding: 0.5rem 1rem; color: var(--text-muted); border-radius: var(--radius-sm); }
@@ -387,3 +387,15 @@ dialog::backdrop {
 .btn-cancel { background: transparent; color: var(--text-main); border: 1px solid var(--border-color); }
 .btn-cancel:hover { background: rgba(255,255,255,0.05); }
 #prompt-dialog, #confirm-dialog { width: min(420px, 90vw); height: max-content !important; min-height: 150px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-panel); backdrop-filter: var(--blur); box-shadow: var(--shadow-lg); color: var(--text-main); }
+.context-menu { position: fixed; z-index: 1000; min-width: 190px; padding: .4rem; background: #18181b; border: 1px solid var(--border-color); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.context-menu[hidden] { display: none; }
+.context-menu button { display: block; width: 100%; padding: .55rem .75rem; border: 0; background: transparent; color: var(--text-main); text-align: left; border-radius: var(--radius-sm); }
+.context-menu button:hover { background: rgba(255,255,255,.08); }
+.context-menu button.danger { color: #f87171; }
+.file-management-bar { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; padding: .5rem .75rem; border-bottom: 1px solid var(--border-color); }
+.file-management-bar input { flex: 1; min-width: 140px; }
+.file-management-bar button, .file-management-bar select, .file-management-bar input { padding: .45rem .6rem; }
+.file-management-bar .danger { color: #f87171; }
+#selection-count { color: var(--text-muted); font-size: .82rem; }
+.file-select, #select-all-files { width: 1rem; height: 1rem; }
+tr.drop-target { outline: 2px solid var(--primary); outline-offset: -2px; background: rgba(59, 130, 246, .14); }
