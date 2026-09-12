@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>TermDock</title>
-  <link rel="stylesheet" href="/xterm.css?v=20260912-3">
-  <link rel="stylesheet" href="/style.css?v=20260912-3">
+  <link rel="stylesheet" href="/xterm.css?v=20260912-4">
+  <link rel="stylesheet" href="/style.css?v=20260912-4">
 </head>
 <body>
   <main id="login">
@@ -29,11 +29,11 @@
       </aside>
     </div>
   </main>
-  <dialog id="prompt-dialog"><form method="dialog" class="dialog-window"><h3 id="prompt-message">提示</h3><input id="prompt-input" type="text" autocomplete="off"><div class="dialog-actions"><button type="button" class="btn-cancel" value="cancel" onclick="this.closest('dialog').close(this.value)">取消</button><button type="button" class="btn-primary" value="ok" onclick="this.closest('dialog').close(this.value)">确定</button></div></form></dialog>
-  <dialog id="confirm-dialog"><form method="dialog" class="dialog-window"><h3 id="confirm-message">确认</h3><div class="dialog-actions"><button type="button" class="btn-cancel" value="cancel" onclick="this.closest('dialog').close(this.value)">取消</button><button type="button" class="btn-danger" value="ok" onclick="this.closest('dialog').close(this.value)">确定</button></div></form></dialog>
-  <dialog id="editor"><form method="dialog" class="editor-window"><div class="editor-title"><strong id="editor-name">编辑文件</strong><button type="button" value="cancel" onclick="this.closest('dialog').close(this.value)">关闭</button></div><textarea id="editor-content" spellcheck="false"></textarea><p id="editor-error" role="alert"></p><div class="editor-actions"><button type="button" class="btn-cancel" value="cancel" onclick="this.closest('dialog').close(this.value)">取消</button><button type="button" id="save-file" class="btn-primary">保存</button></div></form></dialog>
-  <script src="/xterm.js?v=20260912-3"></script>
-  <script src="/xterm-addon-fit.js?v=20260912-3"></script>
-  <script src="/app.js?v=20260912-3"></script>
+  <dialog id="prompt-dialog"><form method="dialog" class="dialog-window"><h3 id="prompt-message">提示</h3><input id="prompt-input" type="text" autocomplete="off"><div class="dialog-actions"><button class="btn-cancel" value="cancel">取消</button><button class="btn-primary" value="ok">确定</button></div></form></dialog>
+  <dialog id="confirm-dialog"><form method="dialog" class="dialog-window"><h3 id="confirm-message">确认</h3><div class="dialog-actions"><button class="btn-cancel" value="cancel">取消</button><button class="btn-danger" value="ok">确定</button></div></form></dialog>
+  <dialog id="editor"><form method="dialog" class="editor-window"><div class="editor-title"><strong id="editor-name">编辑文件</strong><button value="cancel">关闭</button></div><textarea id="editor-content" spellcheck="false"></textarea><p id="editor-error" role="alert"></p><div class="editor-actions"><button class="btn-cancel" value="cancel">取消</button><button type="button" id="save-file" class="btn-primary">保存</button></div></form></dialog>
+  <script src="/xterm.js?v=20260912-4"></script>
+  <script src="/xterm-addon-fit.js?v=20260912-4"></script>
+  <script src="/app.js?v=20260912-4"></script>
 </body>
 </html>
