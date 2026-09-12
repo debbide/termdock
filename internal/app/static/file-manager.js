@@ -4,8 +4,10 @@
   const sort = document.querySelector('#file-sort');
   const selectAll = document.querySelector('#select-all-files');
   const selectionCount = document.querySelector('#selection-count');
-  const pasteButton = document.querySelector('#paste-files');
+  const table = document.querySelector('.file-table');
+  const menu = document.querySelector('#file-context-menu');
   let clipboard = null;
+  let contextEntries = [];
 
   const rows = () => [...tbody.querySelectorAll('tr[data-entry]')];
   const selectedEntries = () => rows()
@@ -103,8 +105,25 @@
   function setClipboard(entries, mode) {
     if (!entries.length) return;
     clipboard = {paths: entries.map(entry => entry.path), mode};
-    pasteButton.disabled = false;
     selectionCount.textContent = `${mode === 'move' ? '已剪切' : '已复制'} ${entries.length} 项`;
+  }
+
+  async function copyPath(path) {
+    try {
+      await navigator.clipboard.writeText(path);
+    } catch (_) {
+      const input = document.createElement('textarea');
+      input.value = path;
+      input.setAttribute('readonly', '');
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.append(input);
+      input.select();
+      const copied = document.execCommand('copy');
+      input.remove();
+      if (!copied) throw new Error('浏览器拒绝访问剪贴板');
+    }
+    selectionCount.textContent = '路径已复制';
   }
 
   async function renameEntry(entry) {
@@ -129,6 +148,77 @@
     }
   }
 
+  async function pasteClipboard() {
+    if (!clipboard) return;
+    if (await operation({action: clipboard.mode, paths: clipboard.paths, destination: currentPath})) {
+      if (clipboard.mode === 'move') clipboard = null;
+    }
+  }
+
+  function hideContextMenu() {
+    menu.hidden = true;
+    contextEntries = [];
+  }
+
+  function configureContextMenu(entries) {
+    const single = entries.length === 1;
+    const entry = single ? entries[0] : null;
+    const visibility = {
+      open: single,
+      download: single && !entry.is_dir,
+      copy: entries.length > 0,
+      cut: entries.length > 0,
+      paste: entries.length === 0,
+      'copy-path': single,
+      rename: single,
+      extract: single && !entry.is_dir && entry.name.toLowerCase().endsWith('.zip'),
+      compress: entries.length > 0,
+      delete: entries.length > 0
+    };
+    menu.querySelectorAll('button[data-action]').forEach(button => {
+      button.hidden = !visibility[button.dataset.action];
+      button.disabled = button.dataset.action === 'paste' && !clipboard;
+    });
+  }
+
+  table.addEventListener('contextmenu', event => {
+    const row = event.target.closest('tr[data-entry]');
+    event.preventDefault();
+    if (row) {
+      const entry = JSON.parse(row.dataset.entry);
+      const selected = selectedEntries();
+      contextEntries = selected.some(item => item.path === entry.path) ? selected : [entry];
+    } else {
+      contextEntries = [];
+    }
+    configureContextMenu(contextEntries);
+    menu.hidden = false;
+    const maxLeft = Math.max(8, window.innerWidth - menu.offsetWidth - 8);
+    const maxTop = Math.max(8, window.innerHeight - menu.offsetHeight - 8);
+    menu.style.left = `${Math.max(8, Math.min(event.clientX, maxLeft))}px`;
+    menu.style.top = `${Math.max(8, Math.min(event.clientY, maxTop))}px`;
+  });
+
+  menu.addEventListener('click', async event => {
+    const button = event.target.closest('button[data-action]');
+    if (!button || button.disabled) return;
+    const action = button.dataset.action;
+    const entries = [...contextEntries];
+    const entry = entries[0];
+    hideContextMenu();
+    if (action === 'paste') await pasteClipboard();
+    else if (!entry) return;
+    else if (action === 'open') entry.is_dir ? loadFiles(entry.path) : openEditor(entry.path, entry.name);
+    else if (action === 'download') location.href = `/api/files/download?path=${encodeURIComponent(entry.path)}`;
+    else if (action === 'copy') setClipboard(entries, 'copy');
+    else if (action === 'cut') setClipboard(entries, 'move');
+    else if (action === 'copy-path') await copyPath(entry.path);
+    else if (action === 'rename') await renameEntry(entry);
+    else if (action === 'extract') await extractEntry(entry);
+    else if (action === 'compress') await compressEntries(entries);
+    else if (action === 'delete') await removeEntries(entries);
+  });
+
   new MutationObserver(mutations => {
     const needsEnhancement = mutations.some(mutation => [...mutation.addedNodes].some(node => node.nodeType === 1 && node.matches?.('tr[data-entry]') && !node.querySelector('.file-select')));
     if (needsEnhancement) enhanceRows();
@@ -139,24 +229,13 @@
     rows().filter(row => !row.hidden).forEach(row => { row.querySelector('.file-select').checked = selectAll.checked; });
     updateSelection();
   });
-  document.querySelector('#copy-files').addEventListener('click', () => setClipboard(selectedEntries(), 'copy'));
-  document.querySelector('#cut-files').addEventListener('click', () => setClipboard(selectedEntries(), 'move'));
-  pasteButton.addEventListener('click', async () => {
-    if (!clipboard) return;
-    if (await operation({action: clipboard.mode, paths: clipboard.paths, destination: currentPath})) {
-      if (clipboard.mode === 'move') clipboard = null;
-      pasteButton.disabled = !clipboard;
-    }
+  document.addEventListener('pointerdown', event => {
+    if (!menu.hidden && !menu.contains(event.target)) hideContextMenu();
   });
-  document.querySelector('#delete-files').addEventListener('click', () => removeEntries(selectedEntries()));
-  document.querySelector('#compress-files').addEventListener('click', () => compressEntries(selectedEntries()));
-  document.querySelector('#file-context-menu').addEventListener('click', async event => {
-    const action = event.target.closest('[data-action]')?.dataset.action;
-    const entry = contextEntry;
-    if (!entry) return;
-    if (action === 'copy') setClipboard([entry], 'copy');
-    else if (action === 'cut') setClipboard([entry], 'move');
-    else if (action === 'rename') await renameEntry(entry);
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') hideContextMenu();
   });
+  addEventListener('blur', hideContextMenu);
+  addEventListener('resize', hideContextMenu);
   enhanceRows();
 })();
