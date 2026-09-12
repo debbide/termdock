@@ -119,7 +119,17 @@ func TestClosedPersistentSessionReturnsSentinelError(t *testing.T) {
 }
 
 func TestLogoutKeepsTerminalSessionAndAllowsRelogin(t *testing.T) {
-	server, token := newTestServer(t)
+	cfg := config.Defaults()
+	cfg.Security.CookieSecure = false
+	manager, token, err := auth.NewWithToken(time.Minute, "reusable-test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assets, err := fs.Sub(fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(cfg, manager, assets)
 	terminalSession := &persistentSession{closed: make(chan struct{})}
 	server.session = terminalSession
 
