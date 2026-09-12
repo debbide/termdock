@@ -13,8 +13,6 @@ import (
 
 var errTerminalSessionClosed = errors.New("terminal session is closed")
 
-const terminalHistoryLimit = 1 << 20
-
 // persistentSession owns the PTY independently from any browser connection.
 // At most one WebSocket may be attached. All WebSocket writes are serialized
 // through writeMu because gorilla/websocket permits one concurrent writer only.
@@ -24,7 +22,6 @@ type persistentSession struct {
 	terminal *terminal.Terminal
 	client   *websocket.Conn
 	clientID uint64
-	history  []byte
 	closed   chan struct{}
 	done     chan struct{}
 
@@ -68,10 +65,7 @@ func (session *persistentSession) publish(data []byte) {
 	var clientID uint64
 
 	session.mu.Lock()
-	session.history = append(session.history, data...)
-	if len(session.history) > terminalHistoryLimit {
-		session.history = append([]byte(nil), session.history[len(session.history)-terminalHistoryLimit:]...)
-	}
+
 	client = session.client
 	clientID = session.clientID
 	session.mu.Unlock()
@@ -96,19 +90,14 @@ func (session *persistentSession) attach(client *websocket.Conn) (uint64, error)
 	clientID := session.clientID
 	session.client = client
 	session.detachedAt = time.Time{}
-	history := append([]byte(nil), session.history...)
+
 	session.mu.Unlock()
 
 	session.notifyReaper()
 	if oldClient != nil && oldClient != client {
 		_ = oldClient.Close()
 	}
-	if len(history) > 0 {
-		if err := session.writeClient(client, clientID, websocket.BinaryMessage, history); err != nil {
-			session.detach(client, clientID)
-			return 0, err
-		}
-	}
+
 	return clientID, nil
 }
 
