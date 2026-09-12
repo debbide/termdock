@@ -40,7 +40,14 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	httpServer := &http.Server{Addr: cfg.Server.Listen, Handler: server.New(cfg, manager, assets).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 0, IdleTimeout: 60 * time.Second}
+	httpServer := &http.Server{
+		Addr:              cfg.Server.Listen,
+		Handler:           server.New(cfg, manager, assets).Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       0,
+		WriteTimeout:      0,
+		IdleTimeout:       60 * time.Second,
+	}
 	tunnelManager := tunnel.New()
 	publicURL, err := tunnelManager.Start(ctx, cfg.Cloudflare.Binary, cfg.Cloudflare.Mode, cfg.Server.Listen, cfg.Cloudflare.TokenFile)
 	if err != nil {

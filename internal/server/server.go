@@ -215,7 +215,14 @@ func (server *Server) uploadFile(writer http.ResponseWriter, request *http.Reque
 	}
 	request.Body = http.MaxBytesReader(writer, request.Body, 512<<20)
 	if err := request.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(writer, "invalid upload", http.StatusBadRequest)
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			slog.Warn("upload rejected", "reason", "request too large", "limit", maxBytesError.Limit)
+			http.Error(writer, "文件超过 512 MiB 上传限制", http.StatusRequestEntityTooLarge)
+			return
+		}
+		slog.Warn("upload parsing failed", "error", err)
+		http.Error(writer, "上传数据不完整或格式无效，请检查网络后重试", http.StatusBadRequest)
 		return
 	}
 	directory, err := server.filePath(request.FormValue("path"))
