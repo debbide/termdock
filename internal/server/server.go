@@ -234,16 +234,48 @@ func (server *Server) uploadFile(writer http.ResponseWriter, request *http.Reque
 		http.Error(writer, "invalid filename", http.StatusBadRequest)
 		return
 	}
-	destination, err := os.OpenFile(filepath.Join(directory, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		http.Error(writer, err.Error(), http.StatusConflict)
+	finalPath := filepath.Join(directory, name)
+	if _, err := os.Stat(finalPath); err == nil {
+		http.Error(writer, "file already exists", http.StatusConflict)
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer destination.Close()
+	destination, err := os.CreateTemp(directory, ".termdock-upload-*")
+	if err != nil {
+		http.Error(writer, "cannot create upload file", http.StatusInternalServerError)
+		return
+	}
+	temporaryPath := destination.Name()
+	completed := false
+	defer func() {
+		destination.Close()
+		if !completed {
+			os.Remove(temporaryPath)
+		}
+	}()
+	if err := destination.Chmod(0o600); err != nil {
+		http.Error(writer, "cannot prepare upload file", http.StatusInternalServerError)
+		return
+	}
 	if _, err := io.Copy(destination, source); err != nil {
 		http.Error(writer, "upload failed", http.StatusInternalServerError)
 		return
 	}
+	if err := destination.Sync(); err != nil {
+		http.Error(writer, "upload failed", http.StatusInternalServerError)
+		return
+	}
+	if err := destination.Close(); err != nil {
+		http.Error(writer, "upload failed", http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(temporaryPath, finalPath); err != nil {
+		http.Error(writer, "cannot finish upload", http.StatusInternalServerError)
+		return
+	}
+	completed = true
 	writer.WriteHeader(http.StatusCreated)
 }
 

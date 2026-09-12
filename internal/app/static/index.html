@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>TermDock</title>
   <link rel="stylesheet" href="/xterm.css?v=20260912-5">
-  <link rel="stylesheet" href="/style.css?v=20260912-6">
+  <link rel="stylesheet" href="/style.css?v=20260912-7">
 </head>
 <body>
   <main id="login">
@@ -25,6 +25,11 @@
         <div class="panel-title"><strong>SFTP 文件管理</strong><button id="refresh-files">刷新</button></div>
         <div class="file-toolbar"><button id="parent">上级目录</button><input id="path" value="/"><button id="open-path">打开</button><button id="new-directory">新建文件夹</button><label class="upload">上传<input id="upload" type="file" hidden></label></div>
         <div class="file-management-bar"><input id="file-search" type="search" placeholder="搜索文件"><select id="file-sort"><option value="name:asc">名称升序</option><option value="name:desc">名称降序</option><option value="size:asc">大小升序</option><option value="size:desc">大小降序</option><option value="modified:desc">最新修改</option><option value="modified:asc">最早修改</option></select><span id="selection-count"></span></div>
+        <div id="upload-progress" class="upload-progress" hidden aria-live="polite">
+          <div class="upload-progress-header"><span id="upload-progress-name"></span><span id="upload-progress-detail"></span></div>
+          <progress id="upload-progress-bar" max="100" value="0"></progress>
+          <button id="cancel-upload" type="button">取消上传</button>
+        </div>
         <p id="file-error" role="alert"></p>
         <div class="file-table"><table><thead><tr><th><input id="select-all-files" type="checkbox" aria-label="全选"></th><th>名称</th><th>大小</th><th>权限</th><th>修改时间</th><th>操作</th></tr></thead><tbody id="files"></tbody></table></div>
       </aside>
@@ -47,7 +52,7 @@
     <button type="button" data-action="delete" class="danger">删除</button>
   </div>
   <script src="/xterm-addon-fit.js?v=20260912-5"></script>
-  <script src="/app.js?v=20260912-7"></script>
+  <script src="/app.js?v=20260912-8"></script>
   <script src="/file-manager.js?v=20260912-10"></script>
 </body>
 </html>

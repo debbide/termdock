@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	maxArchiveEntries = 10000
+	maxArchiveEntries = 100000
 	maxExtractedBytes = int64(1 << 30)
 )
 
