@@ -20,23 +20,11 @@ type fileOperationRequest struct {
 }
 
 func (server *Server) operationPath(requested string) (string, error) {
-	root, err := filepath.Abs(server.cfg.Terminal.WorkingDir)
-	if err != nil {
-		return "", err
-	}
 	path, err := server.filePath(requested)
 	if err != nil {
 		return "", err
 	}
-	path, err = filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	relative, err := filepath.Rel(root, path)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", errors.New("路径超出工作目录")
-	}
-	return path, nil
+	return filepath.Abs(path)
 }
 
 func (server *Server) fileOperation(writer http.ResponseWriter, request *http.Request) {
