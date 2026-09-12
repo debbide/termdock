@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	uploadChunkSize   = int64(8 << 20)
+	uploadChunkSize   = int64(4 << 20)
 	maximumUploadSize = int64(512 << 20)
 	uploadLifetime    = 24 * time.Hour
 )
