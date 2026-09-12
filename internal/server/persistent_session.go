@@ -124,7 +124,10 @@ func (session *persistentSession) detach(client *websocket.Conn, clientID uint64
 	session.notifyReaper()
 }
 
-func (session *persistentSession) write(data []byte) error {
+func (session *persistentSession) write(client *websocket.Conn, clientID uint64, data []byte) error {
+	if !session.isCurrentClient(client, clientID) {
+		return io.EOF
+	}
 	_, err := session.terminal.Write(data)
 	return err
 }

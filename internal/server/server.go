@@ -430,7 +430,7 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 			}
 			switch messageType {
 			case websocket.BinaryMessage:
-				err = terminalSession.write(data)
+				err = terminalSession.write(connection, clientID, data)
 			case websocket.TextMessage:
 				var control struct {
 					Type string `json:"type"`
