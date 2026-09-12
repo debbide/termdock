@@ -386,4 +386,4 @@ dialog::backdrop {
 .btn-danger:hover { background: var(--danger-hover); }
 .btn-cancel { background: transparent; color: var(--text-main); border: 1px solid var(--border-color); }
 .btn-cancel:hover { background: rgba(255,255,255,0.05); }
-#prompt-dialog, #confirm-dialog { width: min(420px, 90vw); height: auto; min-height: 150px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-panel); backdrop-filter: var(--blur); box-shadow: var(--shadow-lg); color: var(--text-main); }
+#prompt-dialog, #confirm-dialog { width: min(420px, 90vw); height: max-content !important; min-height: 150px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-panel); backdrop-filter: var(--blur); box-shadow: var(--shadow-lg); color: var(--text-main); }
