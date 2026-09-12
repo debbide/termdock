@@ -1,10 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -164,5 +168,98 @@ func TestLogoutKeepsTerminalSessionAndAllowsRelogin(t *testing.T) {
 	second := login()
 	if second.Code != http.StatusNoContent {
 		t.Fatalf("relogin status = %d", second.Code)
+	}
+}
+
+func TestUploadFileWritesAtomically(t *testing.T) {
+	server, token := newTestServer(t)
+	workingDir := t.TempDir()
+	server.cfg.Terminal.WorkingDir = workingDir
+	cookie, err := server.auth.Exchange(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	if err := form.WriteField("path", workingDir); err != nil {
+		t.Fatal(err)
+	}
+	part, err := form.CreateFormFile("file", "hello.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("hello from upload")); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/files/upload", &body)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	request.AddCookie(&http.Cookie{Name: cookieName, Value: cookie})
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status code = %d, body = %q", response.Code, response.Body.String())
+	}
+
+	data, err := os.ReadFile(filepath.Join(workingDir, "hello.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello from upload" {
+		t.Fatalf("uploaded contents = %q", data)
+	}
+	matches, err := filepath.Glob(filepath.Join(workingDir, ".termdock-upload-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary upload files remain: %v", matches)
+	}
+}
+
+func TestUploadFileRejectsExistingDestination(t *testing.T) {
+	server, token := newTestServer(t)
+	workingDir := t.TempDir()
+	server.cfg.Terminal.WorkingDir = workingDir
+	finalPath := filepath.Join(workingDir, "existing.txt")
+	if err := os.WriteFile(finalPath, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cookie, err := server.auth.Exchange(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("file", "existing.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("replacement")); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/files/upload", &body)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	request.AddCookie(&http.Cookie{Name: cookieName, Value: cookie})
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status code = %d, body = %q", response.Code, response.Body.String())
+	}
+	data, err := os.ReadFile(finalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("existing file was changed: %q", data)
 	}
 }
