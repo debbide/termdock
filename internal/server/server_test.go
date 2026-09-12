@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -103,5 +104,55 @@ func TestAuthenticationCookieMatchesTransport(t *testing.T) {
 				t.Fatalf("unexpected cookies: %#v", cookies)
 			}
 		})
+	}
+}
+
+func TestClosedPersistentSessionReturnsSentinelError(t *testing.T) {
+	closed := make(chan struct{})
+	close(closed)
+	session := &persistentSession{closed: closed}
+
+	_, err := session.attach(nil)
+	if !errors.Is(err, errTerminalSessionClosed) {
+		t.Fatalf("attach error = %v, want %v", err, errTerminalSessionClosed)
+	}
+}
+
+func TestLogoutKeepsTerminalSessionAndAllowsRelogin(t *testing.T) {
+	server, token := newTestServer(t)
+	terminalSession := &persistentSession{closed: make(chan struct{})}
+	server.session = terminalSession
+
+	login := func() *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/auth/token", strings.NewReader(`{"token":"`+token+`"}`))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		return response
+	}
+
+	first := login()
+	if first.Code != http.StatusNoContent {
+		t.Fatalf("first login status = %d", first.Code)
+	}
+	cookies := first.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("first login cookies = %#v", cookies)
+	}
+
+	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	logoutRequest.AddCookie(cookies[0])
+	logoutResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(logoutResponse, logoutRequest)
+	if logoutResponse.Code != http.StatusNoContent {
+		t.Fatalf("logout status = %d", logoutResponse.Code)
+	}
+	if server.session != terminalSession {
+		t.Fatal("logout unexpectedly removed the terminal session")
+	}
+
+	second := login()
+	if second.Code != http.StatusNoContent {
+		t.Fatalf("relogin status = %d", second.Code)
 	}
 }

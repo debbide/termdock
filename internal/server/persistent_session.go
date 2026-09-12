@@ -11,6 +11,8 @@ import (
 	"webterm-cf/internal/terminal"
 )
 
+var errTerminalSessionClosed = errors.New("terminal session is closed")
+
 const terminalHistoryLimit = 1 << 20
 
 // persistentSession owns the PTY independently from any browser connection.
@@ -86,7 +88,7 @@ func (session *persistentSession) attach(client *websocket.Conn) (uint64, error)
 	select {
 	case <-session.closed:
 		session.mu.Unlock()
-		return 0, errors.New("terminal session is closed")
+		return 0, errTerminalSessionClosed
 	default:
 	}
 	oldClient := session.client

@@ -332,14 +332,21 @@ func (server *Server) webSocket(writer http.ResponseWriter, request *http.Reques
 	defer connection.Close()
 	connection.SetReadLimit(server.cfg.Security.MaxMessageSize)
 
-	terminalSession, err := server.terminalSession()
-	if err != nil {
-		slog.Error("terminal start failed", "shell", server.cfg.Terminal.Shell, "working_directory", server.cfg.Terminal.WorkingDir, "error", err)
-		_ = connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "terminal unavailable"))
-		return
+	var terminalSession *persistentSession
+	var clientID uint64
+	for attempt := 0; attempt < 2; attempt++ {
+		terminalSession, err = server.terminalSession()
+		if err != nil {
+			break
+		}
+		clientID, err = terminalSession.attach(connection)
+		if !errors.Is(err, errTerminalSessionClosed) {
+			break
+		}
 	}
-	clientID, err := terminalSession.attach(connection)
 	if err != nil {
+		slog.Error("terminal attach failed", "shell", server.cfg.Terminal.Shell, "working_directory", server.cfg.Terminal.WorkingDir, "error", err)
+		_ = connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "terminal unavailable"))
 		return
 	}
 	defer terminalSession.detach(connection, clientID)
