@@ -22,7 +22,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 	t.Helper()
 	cfg := config.Defaults()
 	cfg.Security.CookieSecure = false
-	manager, token, err := auth.New(time.Minute)
+	manager, token, err := auth.NewWithToken(time.Minute, "test-token")
 	if err != nil {
 		t.Fatal(err)
 	}
