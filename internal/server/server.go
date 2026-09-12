@@ -35,10 +35,12 @@ type Server struct {
 	started   time.Time
 	sessionMu sync.Mutex
 	session   *persistentSession
+	uploadMu  sync.Mutex
+	uploads   map[string]*chunkUpload
 }
 
 func New(cfg config.Config, manager *auth.Manager, assets fs.FS) *Server {
-	return &Server{cfg: cfg, auth: manager, limiter: session.NewLimiter(cfg.Terminal.MaxSessions), assets: assets, started: time.Now()}
+	return &Server{cfg: cfg, auth: manager, limiter: session.NewLimiter(cfg.Terminal.MaxSessions), assets: assets, started: time.Now(), uploads: make(map[string]*chunkUpload)}
 }
 
 func (server *Server) Handler() http.Handler {
@@ -56,6 +58,11 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/files/content", server.writeFile)
 	mux.HandleFunc("DELETE /api/files", server.deleteFile)
 	mux.HandleFunc("POST /api/files/upload", server.uploadFile)
+	mux.HandleFunc("POST /api/files/uploads", server.createChunkUpload)
+	mux.HandleFunc("GET /api/files/uploads/{id}", server.chunkUploadStatus)
+	mux.HandleFunc("PUT /api/files/uploads/{id}/chunks/{index}", server.uploadChunk)
+	mux.HandleFunc("POST /api/files/uploads/{id}/complete", server.completeChunkUpload)
+	mux.HandleFunc("DELETE /api/files/uploads/{id}", server.cancelChunkUpload)
 	mux.HandleFunc("POST /api/files/directory", server.createDirectory)
 	mux.HandleFunc("POST /api/files/archive", server.archiveFile)
 	mux.HandleFunc("POST /api/files/operations", server.fileOperation)
