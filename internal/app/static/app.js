@@ -32,7 +32,7 @@ restoreSession();
 
 function customConfirm(msg){return new Promise(r=>{const d=document.querySelector('#confirm-dialog');document.querySelector('#confirm-message').textContent=msg;const cb=()=>r(d.returnValue==='ok');d.addEventListener('close',cb,{once:true});d.returnValue='';d.showModal()})}
 function customPrompt(msg){return new Promise(r=>{const d=document.querySelector('#prompt-dialog');document.querySelector('#prompt-message').textContent=msg;const i=document.querySelector('#prompt-input');i.value='';const cb=()=>r(d.returnValue==='ok'?i.value:null);d.addEventListener('close',cb,{once:true});d.returnValue='';d.showModal();i.focus()})}
-function isZip(entry){return !entry.is_dir&&entry.name.toLowerCase().endsWith('.zip')}
+function isArchive(entry){if(entry.is_dir)return false;const name=entry.name.toLowerCase();return name.endsWith('.zip')||name.endsWith('.tar.gz')||name.endsWith('.tgz')}
 async function archiveRequest(payload){fileError.textContent='';const response=await fetch('/api/files/archive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!response.ok){fileError.textContent=await response.text();return false}await loadFiles(currentPath);return true}
 async function extractEntry(entry){if(!(await customConfirm(`将“${entry.name}”解压到当前目录吗？同名文件可能被覆盖。`)))return;await archiveRequest({action:'extract',path:entry.path,destination:currentPath})}
 async function compressEntry(entry){const suggested=`${entry.name.replace(/\.zip$/i,'')}.zip`;const name=await customPrompt(`压缩包名称（默认 ${suggested}）`);if(name===null)return;await archiveRequest({action:'compress',paths:[entry.path],destination:currentPath,name:name.trim()||suggested})}

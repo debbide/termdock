@@ -1,7 +1,9 @@
 package server
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,7 +40,7 @@ func (server *Server) archiveFile(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch in.Action {
 	case "extract":
-		err = server.extractZip(in.Path, in.Destination)
+		err = server.extractArchive(in.Path, in.Destination)
 	case "compress":
 		err = server.createZip(in.Paths, in.Destination, in.Name)
 	default:
@@ -50,6 +52,112 @@ func (server *Server) archiveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+}
+
+func (server *Server) extractArchive(requestedArchive, requestedDestination string) error {
+	lower := strings.ToLower(requestedArchive)
+	switch {
+	case strings.HasSuffix(lower, ".zip"):
+		return server.extractZip(requestedArchive, requestedDestination)
+	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
+		return server.extractTarGz(requestedArchive, requestedDestination)
+	default:
+		return fmt.Errorf("目前仅支持解压 ZIP、TAR.GZ 和 TGZ 文件")
+	}
+}
+
+func extractionTarget(destination, name string) (string, error) {
+	name = filepath.Clean(filepath.FromSlash(name))
+	if name == "." || filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("压缩包包含不安全路径")
+	}
+	destination = filepath.Clean(destination)
+	target := filepath.Clean(filepath.Join(destination, name))
+	prefix := destination + string(os.PathSeparator)
+	if target != destination && !strings.HasPrefix(target, prefix) {
+		return "", fmt.Errorf("压缩包包含越界路径")
+	}
+	return target, nil
+}
+
+func (server *Server) extractTarGz(requestedArchive, requestedDestination string) error {
+	archivePath, err := server.filePath(requestedArchive)
+	if err != nil {
+		return fmt.Errorf("压缩包路径无效")
+	}
+	destination, err := server.filePath(requestedDestination)
+	if err != nil {
+		return fmt.Errorf("目标目录无效")
+	}
+	info, err := os.Stat(destination)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("目标目录不存在")
+	}
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("无法打开 TAR.GZ 文件")
+	}
+	defer file.Close()
+	gz, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("无法读取 GZIP 数据")
+	}
+	defer gz.Close()
+	reader := tar.NewReader(gz)
+	entries := 0
+	var total int64
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("读取 TAR.GZ 文件失败")
+		}
+		entries++
+		if entries > maxArchiveEntries {
+			return fmt.Errorf("压缩包文件数量超过限制")
+		}
+		if header.Size < 0 || header.Size > maxExtractedBytes-total {
+			return fmt.Errorf("解压后大小超过 1 GB 限制")
+		}
+		total += header.Size
+		target, err := extractionTarget(destination, header.Name)
+		if err != nil {
+			return err
+		}
+		mode := os.FileMode(header.Mode).Perm()
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if mode == 0 {
+				mode = 0755
+			}
+			if err := os.MkdirAll(target, mode); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if mode == 0 {
+				mode = 0644
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(dst, reader)
+			closeErr := dst.Close()
+			if copyErr != nil || closeErr != nil {
+				return fmt.Errorf("写入解压文件失败")
+			}
+		case tar.TypeSymlink, tar.TypeLink:
+			return fmt.Errorf("压缩包包含不支持的链接")
+		default:
+			return fmt.Errorf("压缩包包含不支持的文件类型")
+		}
+	}
+	return nil
 }
 
 func (server *Server) extractZip(requestedArchive, requestedDestination string) error {

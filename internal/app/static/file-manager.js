@@ -171,7 +171,7 @@
       paste: entries.length === 0,
       'copy-path': single,
       rename: single,
-      extract: single && !entry.is_dir && entry.name.toLowerCase().endsWith('.zip'),
+      extract: single && isArchive(entry),
       compress: entries.length > 0,
       delete: entries.length > 0
     };
