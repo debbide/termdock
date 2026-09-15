@@ -297,6 +297,61 @@ func TestLogoutRevokesCookieAndEndsTerminalSession(t *testing.T) {
 	}
 }
 
+// liveTerminal stays running until it is closed, like a shell sitting at a
+// prompt. fakeTerminal's immediate io.EOF would end the session on its own and
+// hide a leaked session slot.
+type liveTerminal struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newLiveTerminal() *liveTerminal { return &liveTerminal{closed: make(chan struct{})} }
+
+func (live *liveTerminal) Read([]byte) (int, error) {
+	<-live.closed
+	return 0, io.EOF
+}
+func (live *liveTerminal) Write(data []byte) (int, error) { return len(data), nil }
+func (live *liveTerminal) Resize(_, _ uint16) error       { return nil }
+func (live *liveTerminal) Close() error {
+	live.once.Do(func() { close(live.closed) })
+	return nil
+}
+
+// Logging out ends the session, so it must return the session's concurrency
+// slot. When the slot leaks, the next login's terminal attach is refused with
+// "session limit reached" and the terminal looks unreachable.
+func TestLogoutReleasesSessionSlotForReconnect(t *testing.T) {
+	server, token := newTestServer(t, func(cfg *config.Config) { cfg.Terminal.MaxSessions = 1 })
+	server.startTerminal = func(string, string) (terminalProcess, error) { return newLiveTerminal(), nil }
+
+	if _, err := server.terminalSession(); err != nil {
+		t.Fatalf("first terminalSession: %v", err)
+	}
+	if active := server.limiter.Active(); active != 1 {
+		t.Fatalf("active sessions = %d, want 1", active)
+	}
+
+	cookie, err := server.auth.Exchange(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	request.AddCookie(&http.Cookie{Name: cookieName, Value: cookie})
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("logout status = %d", response.Code)
+	}
+
+	if active := server.limiter.Active(); active != 0 {
+		t.Fatalf("active sessions after logout = %d, want 0 (slot leaked)", active)
+	}
+	if _, err := server.terminalSession(); err != nil {
+		t.Fatalf("terminalSession after logout: %v", err)
+	}
+}
+
 // A PTY that never finishes tearing down must not be able to hang logout.
 func TestLogoutReturnsEvenWhenPTYTeardownStalls(t *testing.T) {
 	server, token := newTestServer(t)

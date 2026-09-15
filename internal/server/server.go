@@ -36,12 +36,25 @@ type Server struct {
 	started   time.Time
 	sessionMu sync.Mutex
 	session   *persistentSession
-	uploadMu  sync.Mutex
-	uploads   map[string]*chunkUpload
+	// startTerminal allocates the PTY for a new session. It is a field so tests
+	// can drive the session lifecycle without spawning a real shell.
+	startTerminal func(shell, directory string) (terminalProcess, error)
+	uploadMu      sync.Mutex
+	uploads       map[string]*chunkUpload
 }
 
 func New(cfg config.Config, manager *auth.Manager, assets fs.FS) *Server {
-	return &Server{cfg: cfg, auth: manager, limiter: session.NewLimiter(cfg.Terminal.MaxSessions), assets: assets, started: time.Now(), uploads: make(map[string]*chunkUpload)}
+	return &Server{
+		cfg:     cfg,
+		auth:    manager,
+		limiter: session.NewLimiter(cfg.Terminal.MaxSessions),
+		assets:  assets,
+		started: time.Now(),
+		startTerminal: func(shell, directory string) (terminalProcess, error) {
+			return terminal.Start(shell, directory)
+		},
+		uploads: make(map[string]*chunkUpload),
+	}
 }
 
 func (server *Server) Handler() http.Handler {
@@ -467,7 +480,7 @@ func (server *Server) terminalSession() (*persistentSession, error) {
 	if !server.limiter.Acquire() {
 		return nil, errors.New("session limit reached")
 	}
-	ptySession, err := terminal.Start(server.cfg.Terminal.Shell, server.cfg.Terminal.WorkingDir)
+	ptySession, err := server.startTerminal(server.cfg.Terminal.Shell, server.cfg.Terminal.WorkingDir)
 	if err != nil {
 		server.limiter.Release()
 		return nil, err
@@ -502,11 +515,18 @@ func (server *Server) terminalSession() (*persistentSession, error) {
 func (server *Server) closeTerminalSession() {
 	server.sessionMu.Lock()
 	current := server.session
-	server.session = nil
-	server.sessionMu.Unlock()
 	if current == nil {
+		server.sessionMu.Unlock()
 		return
 	}
+	server.session = nil
+	// Release the slot here rather than leaving it to the cleanup goroutine:
+	// that goroutine only releases a session it can still recognise as the
+	// current one, and we have just detached it. Releasing synchronously also
+	// means a logout followed immediately by a new connection cannot hit the
+	// session limit.
+	server.limiter.Release()
+	server.sessionMu.Unlock()
 	finished := make(chan struct{})
 	go func() {
 		current.close()
