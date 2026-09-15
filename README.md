@@ -137,3 +137,16 @@ go run ./cmd/webterm
 | `cloudflare.mode` | `disabled` | `disabled`、`quick` 或 `fixed` |
 
 使用固定令牌运行时，令牌来自 `WEBTERM_ACCESS_TOKEN`，程序只提示"令牌来自环境变量"，不会把长期令牌写入日志。
+
+## 第三方组件
+
+本项目在 `LICENSE`（MIT）之外还打包或链接了以下组件，各自的许可证与完整声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)：
+
+| 组件 | 版本 | 许可证 |
+| --- | --- | --- |
+| `@xterm/xterm` | 6.0.0 | MIT |
+| `@xterm/addon-fit` | 0.11.0 | MIT |
+| `github.com/creack/pty` | v1.1.24 | MIT |
+| `github.com/gorilla/websocket` | v1.5.3 | BSD-2-Clause |
+
+`internal/app/static/` 下的 `xterm.js`、`xterm.css`、`xterm-addon-fit.js` 是上游 npm 产物的逐字节副本，版本通过 SHA-256 比对确认。其中 `xterm.js` 和 `xterm-addon-fit.js` 上游以压缩形式发布且不带版权声明，因此本项目在这两个文件头部补上了许可证声明；**更新这两个文件时请保留该声明**，并同步更新 `THIRD-PARTY-NOTICES.md` 中的版本与摘要。

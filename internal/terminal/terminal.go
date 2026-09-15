@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,8 +19,10 @@ import (
 const closeGracePeriod = 500 * time.Millisecond
 
 type Terminal struct {
-	process *exec.Cmd
-	file    *os.File
+	process   *exec.Cmd
+	file      *os.File
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func Start(shell, workingDirectory string) (*Terminal, error) {
@@ -51,15 +54,27 @@ func (terminal *Terminal) Resize(columns, rows uint16) error {
 	return pty.Setsize(terminal.file, &pty.Winsize{Cols: columns, Rows: rows})
 }
 
-// Close terminates the whole PTY process group and always returns. The shell is
-// asked to exit with SIGTERM, then killed if it does not comply within the grace
-// period, because an interactive shell ignores SIGTERM. Callers may be serving a
-// request, so this must never block indefinitely.
+// Close terminates the whole PTY process group and always returns. Callers may
+// be serving a request, so this must never block indefinitely. Close is
+// idempotent: the session that owns the PTY may race with a request ending it.
+//
+// The escalation to SIGKILL is load-bearing, not belt-and-braces. Two facts
+// combine to make the obvious teardown hang: an interactive shell ignores
+// SIGTERM, and while the session's reader goroutine is blocked in read() the
+// kernel keeps the master descriptor alive (os.File.Close defers the real
+// close(2) until the in-flight read returns). The shell therefore never sees
+// SIGHUP from the master closing, and waiting for it to exit blocks forever.
+// SIGKILL is what actually ends it.
 func (terminal *Terminal) Close() error {
-	// Closing the master makes the shell see EOF and unblocks the reader.
+	terminal.closeOnce.Do(terminal.close)
+	return terminal.closeErr
+}
+
+func (terminal *Terminal) close() {
+	// Best effort: if no read is in flight this delivers SIGHUP to the shell.
 	_ = terminal.file.Close()
 	if terminal.process.Process == nil {
-		return nil
+		return
 	}
 	processGroup := -terminal.process.Process.Pid
 	_ = syscall.Kill(processGroup, syscall.SIGTERM)
@@ -69,15 +84,21 @@ func (terminal *Terminal) Close() error {
 
 	select {
 	case err := <-exited:
-		if err != nil && !errors.Is(err, io.EOF) {
-			return err
-		}
-		return nil
+		terminal.closeErr = reapError(err)
+		return
 	case <-time.After(closeGracePeriod):
 	}
 	_ = syscall.Kill(processGroup, syscall.SIGKILL)
-	if err := <-exited; err != nil && !errors.Is(err, io.EOF) {
-		return err
+	terminal.closeErr = reapError(<-exited)
+}
+
+// reapError reports whether waiting for the shell failed. How the shell died is
+// not a teardown failure: a normal exit, SIGHUP from the master closing, and the
+// SIGTERM/SIGKILL we send are all expected outcomes.
+func reapError(err error) error {
+	var exitError *exec.ExitError
+	if err == nil || errors.Is(err, io.EOF) || errors.As(err, &exitError) {
+		return nil
 	}
-	return nil
+	return err
 }
