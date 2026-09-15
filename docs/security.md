@@ -14,9 +14,11 @@ TermDock listens on `127.0.0.1` by default, requires one-time-token authenticati
 
 `X-Forwarded-Host` and `X-Forwarded-Proto` are honored only when the direct peer is loopback or listed in `security.trusted_proxies` (IP or CIDR). A remote client therefore cannot name an arbitrary host to satisfy origin validation or force a secure cookie. The default deployment — cloudflared forwarding to `127.0.0.1` — needs no extra configuration; add entries only when a proxy connects over a non-loopback address.
 
-## File manager confinement
+## File manager access
 
-The file API is restricted to `terminal.working_directory`. Absolute paths and `..` sequences that leave that directory are rejected, and the working directory itself cannot be deleted, renamed, or moved. The PTY is not confined, so an authenticated user still has full shell access; the confinement exists to keep the HTTP surface from being broader than the terminal.
+The file API can reach any path the service account can reach, matching the shell the same authenticated user already has. The one exception is `terminal.working_directory` itself, which cannot be deleted, renamed, or moved so the configured root cannot be removed out from under the service.
+
+An earlier revision confined the file API to `terminal.working_directory`. That was reverted: because the PTY is not confined, an attacker holding the session cookie already has a full shell, so the restriction bought no protection while making the file manager far less useful to the operator.
 
 Archive extraction rejects absolute paths, `..` traversal, symbolic links, and hard links, and enforces entry-count and 1 GB extracted-size limits.
 

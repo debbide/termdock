@@ -391,7 +391,10 @@ func TestClientAddressIgnoresForwardingHeaders(t *testing.T) {
 	}
 }
 
-func TestFileAPIStaysInsideWorkingDirectory(t *testing.T) {
+// The file API intentionally reaches the whole filesystem, matching the shell
+// the operator already has. Only the working directory itself is protected from
+// deletion so the configured root cannot be removed out from under the service.
+func TestFileAPIReachesOutsideWorkingDirectory(t *testing.T) {
 	server, token := newTestServer(t)
 	workingDir := t.TempDir()
 	server.cfg.Terminal.WorkingDir = workingDir
@@ -415,17 +418,14 @@ func TestFileAPIStaysInsideWorkingDirectory(t *testing.T) {
 		return response.Code
 	}
 
-	if code := request("/api/files/content?path=" + url.QueryEscape(filepath.Join(workingDir, "inside.txt"))); code != http.StatusOK {
-		t.Fatalf("in-root read status = %d", code)
-	}
 	for _, target := range []string{
+		"/api/files/content?path=" + url.QueryEscape(filepath.Join(workingDir, "inside.txt")),
+		"/api/files/content?path=" + url.QueryEscape(outside),
 		"/api/files?path=" + url.QueryEscape(filepath.Dir(workingDir)),
 		"/api/files?path=" + url.QueryEscape("/etc"),
-		"/api/files/content?path=" + url.QueryEscape(outside),
-		"/api/files/content?path=" + url.QueryEscape(filepath.Join(workingDir, "..", filepath.Base(outside))),
 	} {
-		if code := request(target); code != http.StatusBadRequest {
-			t.Fatalf("out-of-root request %q status = %d, want 400", target, code)
+		if code := request(target); code != http.StatusOK {
+			t.Fatalf("request %q status = %d, want 200", target, code)
 		}
 	}
 

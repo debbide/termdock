@@ -81,7 +81,7 @@ curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/insta
 | 退出登录 | 只清除 Cookie，PTY 会话继续保留 | 同时撤销 Cookie 并结束当前 PTY 会话 |
 | 断线保留窗口 | 默认 24 小时 | 默认 1 小时（`terminal.session_retention`） |
 | 固定令牌 | 会把 `WEBTERM_ACCESS_TOKEN` 的值打印到日志 | 只提示"令牌来自环境变量"，不打印令牌 |
-| 文件管理范围 | 可访问工作目录之外 | 限制在 `terminal.working_directory` 内，越界路径一律拒绝 |
+| 文件管理范围 | 可访问工作目录之外 | 不变（仅工作目录自身仍受保护，不能被删除/重命名/移动） |
 | 省略 `cookie_secure` | 被当作 `false`（关闭安全 Cookie） | 保持安全默认值 `true`；必须显式写 `false` 才会关闭 |
 | `X-Forwarded-Host` / `X-Forwarded-Proto` | 任何来源都被信任 | 仅回环地址或 `security.trusted_proxies` 中的来源被信任 |
 | 启动输出 | 无 | 新增一行 `File manager root: <路径>` |
@@ -142,7 +142,7 @@ go run ./cmd/webterm
 - `X-Forwarded-Host` / `X-Forwarded-Proto` 仅在来源为回环地址或 `security.trusted_proxies` 中列出的代理时才被信任，远程客户端无法伪造。默认部署（cloudflared 转发到 `127.0.0.1`）无需额外配置。
 - PTY 进程使用服务账号权限运行，断开连接时终止对应进程组。
 - 退出登录会同时撤销 Cookie 并结束当前 PTY；仅网络中断时保留 PTY 供重连，保留时长由 `terminal.session_retention` 控制（默认 1 小时）。
-- 文件管理接口被限制在 `terminal.working_directory` 之内，越界路径（包括绝对路径和 `..`）一律拒绝；终端本身仍可访问整台主机。
+- 文件管理接口可访问文件系统上服务账号有权访问的任意路径（与终端一致）；仅 `terminal.working_directory` 自身受保护，不能被删除、重命名或移动。
 - 默认仅监听回环地址，远程访问前应配置 HTTPS 或 Cloudflare Tunnel。
 - 除非明确需要 root 终端权限，否则不要以 root 身份运行服务。
 

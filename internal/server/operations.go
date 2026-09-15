@@ -20,7 +20,11 @@ type fileOperationRequest struct {
 }
 
 func (server *Server) operationPath(requested string) (string, error) {
-	return server.filePath(requested)
+	path, err := server.filePath(requested)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(path)
 }
 
 func (server *Server) fileOperation(writer http.ResponseWriter, request *http.Request) {
@@ -61,8 +65,12 @@ func (server *Server) renamePath(source, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := server.ensureNotRoot(sourcePath); err != nil {
+	root, err := filepath.Abs(server.cfg.Terminal.WorkingDir)
+	if err != nil {
 		return err
+	}
+	if filepath.Clean(sourcePath) == filepath.Clean(root) {
+		return errors.New("不能重命名工作目录")
 	}
 	targetPath, err := server.operationPath(filepath.Join(filepath.Dir(sourcePath), name))
 	if err != nil {
@@ -88,13 +96,17 @@ func (server *Server) transferPaths(paths []string, destination string, move boo
 	if err != nil || !info.IsDir() {
 		return errors.New("目标目录不存在")
 	}
+	root, err := filepath.Abs(server.cfg.Terminal.WorkingDir)
+	if err != nil {
+		return err
+	}
 	for _, selected := range paths {
 		sourcePath, err := server.operationPath(selected)
 		if err != nil {
 			return err
 		}
-		if err := server.ensureNotRoot(sourcePath); err != nil {
-			return err
+		if filepath.Clean(sourcePath) == filepath.Clean(root) {
+			return errors.New("不能移动或复制工作目录")
 		}
 		targetPath, err := server.operationPath(filepath.Join(destinationPath, filepath.Base(sourcePath)))
 		if err != nil {
@@ -133,13 +145,17 @@ func (server *Server) deletePaths(paths []string) error {
 	if len(paths) == 0 {
 		return errors.New("未选择文件")
 	}
+	root, err := filepath.Abs(server.cfg.Terminal.WorkingDir)
+	if err != nil {
+		return err
+	}
 	for _, selected := range paths {
 		path, err := server.operationPath(selected)
 		if err != nil {
 			return err
 		}
-		if err := server.ensureNotRoot(path); err != nil {
-			return err
+		if filepath.Clean(path) == filepath.Clean(root) {
+			return errors.New("不能删除工作目录")
 		}
 		if err := os.RemoveAll(path); err != nil {
 			return err

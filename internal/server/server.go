@@ -80,33 +80,16 @@ type fileEntry struct {
 	IsDir   bool   `json:"is_dir"`
 }
 
-// filePath resolves a request path against the configured working directory and
-// refuses anything that escapes it. The file API is deliberately confined to
-// the terminal working directory even though the PTY itself is not.
+// filePath resolves a request path against the configured working directory.
 func (server *Server) filePath(requested string) (string, error) {
-	root, err := filepath.Abs(server.cfg.Terminal.WorkingDir)
-	if err != nil {
-		return "", errors.New("working directory is not accessible")
-	}
 	if requested == "" {
-		return root, nil
+		requested = server.cfg.Terminal.WorkingDir
 	}
-	cleaned := filepath.Clean(filepath.FromSlash(requested))
+	cleaned := filepath.Clean(requested)
 	if !filepath.IsAbs(cleaned) {
-		cleaned = filepath.Join(root, cleaned)
+		cleaned = filepath.Join(server.cfg.Terminal.WorkingDir, cleaned)
 	}
-	target := filepath.Clean(cleaned)
-	if !withinRoot(root, target) {
-		return "", errors.New("path is outside the permitted directory")
-	}
-	return target, nil
-}
-
-func withinRoot(root, target string) bool {
-	if target == root {
-		return true
-	}
-	return strings.HasPrefix(target, root+string(filepath.Separator))
+	return cleaned, nil
 }
 
 func (server *Server) listFiles(writer http.ResponseWriter, request *http.Request) {
@@ -132,13 +115,7 @@ func (server *Server) listFiles(writer http.ResponseWriter, request *http.Reques
 		}
 		result = append(result, fileEntry{Name: entry.Name(), Path: filepath.Join(path, entry.Name()), Size: info.Size(), Mode: info.Mode().String(), ModTime: info.ModTime().Format(time.RFC3339), IsDir: entry.IsDir()})
 	}
-	// The listing root is the confinement root, so "parent" must not point
-	// above it or the next navigation would be rejected.
-	parent := filepath.Dir(path)
-	if root, err := filepath.Abs(server.cfg.Terminal.WorkingDir); err != nil || !withinRoot(root, parent) {
-		parent = path
-	}
-	writeJSON(writer, map[string]any{"path": path, "parent": parent, "entries": result})
+	writeJSON(writer, map[string]any{"path": path, "parent": filepath.Dir(path), "entries": result})
 }
 
 func (server *Server) downloadFile(writer http.ResponseWriter, request *http.Request) {
@@ -229,8 +206,8 @@ func (server *Server) deleteFile(writer http.ResponseWriter, request *http.Reque
 		http.Error(writer, "路径无效", http.StatusBadRequest)
 		return
 	}
-	if err := server.ensureNotRoot(path); err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
+	if path == "/" || filepath.Clean(path) == filepath.Clean(server.cfg.Terminal.WorkingDir) {
+		http.Error(writer, "不能删除根目录", http.StatusBadRequest)
 		return
 	}
 	if err := os.RemoveAll(path); err != nil {
@@ -238,19 +215,6 @@ func (server *Server) deleteFile(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writer.WriteHeader(http.StatusNoContent)
-}
-
-// ensureNotRoot protects the terminal working directory itself from deletion,
-// renaming, or moving so the file API cannot remove its own confinement root.
-func (server *Server) ensureNotRoot(path string) error {
-	root, err := filepath.Abs(server.cfg.Terminal.WorkingDir)
-	if err != nil {
-		return errors.New("路径无效")
-	}
-	if filepath.Clean(path) == filepath.Clean(root) {
-		return errors.New("不能对工作目录执行该操作")
-	}
-	return nil
 }
 
 func (server *Server) uploadFile(writer http.ResponseWriter, request *http.Request) {
@@ -345,11 +309,7 @@ func (server *Server) createDirectory(writer http.ResponseWriter, request *http.
 		http.Error(writer, "invalid directory", http.StatusBadRequest)
 		return
 	}
-	directory, err := server.filePath(input.Path)
-	if err != nil {
-		http.Error(writer, "路径无效", http.StatusBadRequest)
-		return
-	}
+	directory, _ := server.filePath(input.Path)
 	if err := os.Mkdir(filepath.Join(directory, input.Name), 0o700); err != nil {
 		http.Error(writer, err.Error(), http.StatusConflict)
 		return
