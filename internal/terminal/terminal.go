@@ -7,9 +7,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 )
+
+// closeGracePeriod is how long a shell may take to exit after SIGTERM before it
+// is killed outright. Interactive shells ignore SIGTERM by default, so waiting
+// without a bound would block the caller forever.
+const closeGracePeriod = 500 * time.Millisecond
 
 type Terminal struct {
 	process *exec.Cmd
@@ -44,12 +50,33 @@ func (terminal *Terminal) Resize(columns, rows uint16) error {
 	}
 	return pty.Setsize(terminal.file, &pty.Winsize{Cols: columns, Rows: rows})
 }
+
+// Close terminates the whole PTY process group and always returns. The shell is
+// asked to exit with SIGTERM, then killed if it does not comply within the grace
+// period, because an interactive shell ignores SIGTERM. Callers may be serving a
+// request, so this must never block indefinitely.
 func (terminal *Terminal) Close() error {
-	if terminal.process.Process != nil {
-		_ = syscall.Kill(-terminal.process.Process.Pid, syscall.SIGTERM)
-	}
+	// Closing the master makes the shell see EOF and unblocks the reader.
 	_ = terminal.file.Close()
-	if err := terminal.process.Wait(); err != nil && !errors.Is(err, io.EOF) {
+	if terminal.process.Process == nil {
+		return nil
+	}
+	processGroup := -terminal.process.Process.Pid
+	_ = syscall.Kill(processGroup, syscall.SIGTERM)
+
+	exited := make(chan error, 1)
+	go func() { exited <- terminal.process.Wait() }()
+
+	select {
+	case err := <-exited:
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		return nil
+	case <-time.After(closeGracePeriod):
+	}
+	_ = syscall.Kill(processGroup, syscall.SIGKILL)
+	if err := <-exited; err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	return nil

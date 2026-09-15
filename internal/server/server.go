@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -79,15 +80,33 @@ type fileEntry struct {
 	IsDir   bool   `json:"is_dir"`
 }
 
+// filePath resolves a request path against the configured working directory and
+// refuses anything that escapes it. The file API is deliberately confined to
+// the terminal working directory even though the PTY itself is not.
 func (server *Server) filePath(requested string) (string, error) {
+	root, err := filepath.Abs(server.cfg.Terminal.WorkingDir)
+	if err != nil {
+		return "", errors.New("working directory is not accessible")
+	}
 	if requested == "" {
-		requested = server.cfg.Terminal.WorkingDir
+		return root, nil
 	}
-	cleaned := filepath.Clean(requested)
+	cleaned := filepath.Clean(filepath.FromSlash(requested))
 	if !filepath.IsAbs(cleaned) {
-		cleaned = filepath.Join(server.cfg.Terminal.WorkingDir, cleaned)
+		cleaned = filepath.Join(root, cleaned)
 	}
-	return cleaned, nil
+	target := filepath.Clean(cleaned)
+	if !withinRoot(root, target) {
+		return "", errors.New("path is outside the permitted directory")
+	}
+	return target, nil
+}
+
+func withinRoot(root, target string) bool {
+	if target == root {
+		return true
+	}
+	return strings.HasPrefix(target, root+string(filepath.Separator))
 }
 
 func (server *Server) listFiles(writer http.ResponseWriter, request *http.Request) {
@@ -113,7 +132,13 @@ func (server *Server) listFiles(writer http.ResponseWriter, request *http.Reques
 		}
 		result = append(result, fileEntry{Name: entry.Name(), Path: filepath.Join(path, entry.Name()), Size: info.Size(), Mode: info.Mode().String(), ModTime: info.ModTime().Format(time.RFC3339), IsDir: entry.IsDir()})
 	}
-	writeJSON(writer, map[string]any{"path": path, "parent": filepath.Dir(path), "entries": result})
+	// The listing root is the confinement root, so "parent" must not point
+	// above it or the next navigation would be rejected.
+	parent := filepath.Dir(path)
+	if root, err := filepath.Abs(server.cfg.Terminal.WorkingDir); err != nil || !withinRoot(root, parent) {
+		parent = path
+	}
+	writeJSON(writer, map[string]any{"path": path, "parent": parent, "entries": result})
 }
 
 func (server *Server) downloadFile(writer http.ResponseWriter, request *http.Request) {
@@ -204,8 +229,8 @@ func (server *Server) deleteFile(writer http.ResponseWriter, request *http.Reque
 		http.Error(writer, "路径无效", http.StatusBadRequest)
 		return
 	}
-	if path == "/" || filepath.Clean(path) == filepath.Clean(server.cfg.Terminal.WorkingDir) {
-		http.Error(writer, "不能删除根目录", http.StatusBadRequest)
+	if err := server.ensureNotRoot(path); err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := os.RemoveAll(path); err != nil {
@@ -213,6 +238,19 @@ func (server *Server) deleteFile(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+// ensureNotRoot protects the terminal working directory itself from deletion,
+// renaming, or moving so the file API cannot remove its own confinement root.
+func (server *Server) ensureNotRoot(path string) error {
+	root, err := filepath.Abs(server.cfg.Terminal.WorkingDir)
+	if err != nil {
+		return errors.New("路径无效")
+	}
+	if filepath.Clean(path) == filepath.Clean(root) {
+		return errors.New("不能对工作目录执行该操作")
+	}
+	return nil
 }
 
 func (server *Server) uploadFile(writer http.ResponseWriter, request *http.Request) {
@@ -307,7 +345,11 @@ func (server *Server) createDirectory(writer http.ResponseWriter, request *http.
 		http.Error(writer, "invalid directory", http.StatusBadRequest)
 		return
 	}
-	directory, _ := server.filePath(input.Path)
+	directory, err := server.filePath(input.Path)
+	if err != nil {
+		http.Error(writer, "路径无效", http.StatusBadRequest)
+		return
+	}
 	if err := os.Mkdir(filepath.Join(directory, input.Name), 0o700); err != nil {
 		http.Error(writer, err.Error(), http.StatusConflict)
 		return
@@ -342,7 +384,17 @@ func (server *Server) exchangeToken(writer http.ResponseWriter, request *http.Re
 	writer.WriteHeader(http.StatusNoContent)
 }
 
+// logout retires the presented cookie on the server before clearing it in the
+// browser, and ends the terminal session as the documented exit path does.
+// Revoking and closing only happen for an authenticated caller so an
+// unauthenticated request cannot tear down someone else's session.
 func (server *Server) logout(writer http.ResponseWriter, request *http.Request) {
+	if server.authenticated(request) {
+		if cookie, err := request.Cookie(cookieName); err == nil {
+			server.auth.Revoke(cookie.Value)
+		}
+		server.closeTerminalSession()
+	}
 	http.SetCookie(writer, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, Secure: server.cookieSecure(request), SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	writer.WriteHeader(http.StatusNoContent)
 }
@@ -351,7 +403,44 @@ func (server *Server) cookieSecure(request *http.Request) bool {
 	if !server.cfg.Security.CookieSecure {
 		return false
 	}
-	return request.TLS != nil || strings.EqualFold(request.Header.Get("X-Forwarded-Proto"), "https")
+	if request.TLS != nil {
+		return true
+	}
+	return server.forwardedTrusted(request) && strings.EqualFold(request.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// forwardedTrusted reports whether forwarding headers from this peer may be
+// believed. Only a loopback peer (the documented cloudflared/local proxy setup)
+// or an explicitly configured trusted proxy qualifies, so a remote client
+// cannot spoof X-Forwarded-Host or X-Forwarded-Proto.
+func (server *Server) forwardedTrusted(request *http.Request) bool {
+	address := net.ParseIP(clientAddress(request))
+	if address == nil {
+		return false
+	}
+	if address.IsLoopback() {
+		return true
+	}
+	for _, trusted := range server.cfg.Security.TrustedProxies {
+		if proxyMatches(trusted, address) {
+			return true
+		}
+	}
+	return false
+}
+
+func proxyMatches(trusted string, address net.IP) bool {
+	trusted = strings.TrimSpace(trusted)
+	if trusted == "" {
+		return false
+	}
+	if _, network, err := net.ParseCIDR(trusted); err == nil {
+		return network.Contains(address)
+	}
+	if candidate := net.ParseIP(trusted); candidate != nil {
+		return candidate.Equal(address)
+	}
+	return false
 }
 
 func (server *Server) terminate(writer http.ResponseWriter, request *http.Request) {
@@ -359,7 +448,6 @@ func (server *Server) terminate(writer http.ResponseWriter, request *http.Reques
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	server.closeTerminalSession()
 	server.logout(writer, request)
 }
 
@@ -448,12 +536,26 @@ func (server *Server) terminalSession() (*persistentSession, error) {
 	return current, nil
 }
 
+// closeTerminalSession ends the current PTY session without ever blocking the
+// caller: it runs on request paths such as logout, and a stuck PTY teardown must
+// not be able to hang the HTTP handler.
 func (server *Server) closeTerminalSession() {
 	server.sessionMu.Lock()
 	current := server.session
+	server.session = nil
 	server.sessionMu.Unlock()
-	if current != nil {
+	if current == nil {
+		return
+	}
+	finished := make(chan struct{})
+	go func() {
 		current.close()
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		slog.Warn("terminal session teardown timed out")
 	}
 }
 
@@ -549,8 +651,12 @@ func (server *Server) validOrigin(request *http.Request) bool {
 		return false
 	}
 	requestHost := request.Host
-	if forwardedHost := strings.TrimSpace(strings.Split(request.Header.Get("X-Forwarded-Host"), ",")[0]); forwardedHost != "" {
-		requestHost = forwardedHost
+	// Forwarding headers are only honored from a trusted proxy; otherwise a
+	// remote client could name any host it likes and pass origin validation.
+	if server.forwardedTrusted(request) {
+		if forwardedHost := strings.TrimSpace(strings.Split(request.Header.Get("X-Forwarded-Host"), ",")[0]); forwardedHost != "" {
+			requestHost = forwardedHost
+		}
 	}
 	if strings.EqualFold(parsed.Host, requestHost) {
 		return true

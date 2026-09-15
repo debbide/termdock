@@ -1,5 +1,22 @@
 # WebTerm CF 开发计划
 
+> **实现现状说明（请先读）**
+>
+> 本文是最初的设计计划，保留作为历史记录。落地实现与计划存在如下差异，以代码为准：
+>
+> | 主题 | 计划 | 实际实现 |
+> | --- | --- | --- |
+> | 配置文件 | YAML（`config.yaml`） | JSON（`config.json`），解析器为 `internal/config` |
+> | 前端 | `web/` + TypeScript + Vite + xterm-addon-web-links | `internal/app/static/` 内嵌手写 JS + xterm.js + fit 插件，`go:embed` 打包，无构建步骤 |
+> | 后端模块 | 含 `internal/security`、`internal/logging` | 未单独建包，安全头在 `internal/server`，并发限制在 `internal/session` |
+> | 登录限速 | 实施登录限速与失败延迟 | **未实现且已明确放弃**：隧道场景下所有请求来自 `127.0.0.1`，按地址计数可被任意远程访客用来锁死真正的使用者；256 位随机令牌已使暴力猜测不可行 |
+> | 命令行 | `webterm start/stop/status/url/token/tunnel/config/version` | 仅 `--config`、`--listen`、`version` 三个入口 |
+> | 认证模式 | 一次性令牌 + 固定账号密码 | 一次性令牌 + 固定令牌（`WEBTERM_ACCESS_TOKEN`），无密码登录 |
+> | 多会话 | 每连接独立 PTY | 单 PTY 复用，支持断线重连与保留窗口（`session_retention`） |
+> | 文件管理 | 未在计划内 | 已实现完整的文件管理 API（浏览、编辑、上传、压缩、解压、批量操作） |
+>
+> 阶段 1–5 已基本完成；阶段 6 的 tmux 恢复、多标签、OIDC、Alpine/Rocky 支持仍未开始。
+
 ## 一、项目目标
 
 用户在服务器执行一条安装命令：

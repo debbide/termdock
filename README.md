@@ -107,8 +107,33 @@ go run ./cmd/webterm
 ## 安全边界
 
 - 未认证用户不能访问终端和状态接口。
-- 认证使用随机令牌及短期、签名的 HttpOnly Cookie。
+- 认证使用随机令牌及短期、签名的 HttpOnly Cookie；Cookie 在服务端可撤销，退出登录立即失效。
+- 登录接口不按来源地址限速：隧道场景下所有请求都来自 `127.0.0.1`，按地址计数会让任何远程访客锁死真正的使用者。令牌为 256 位随机值，暴力猜测不可行；如需额外保护，建议在隧道前叠加 Cloudflare Access。
 - WebSocket 请求必须携带有效 Cookie，且 Origin 必须匹配或已加入信任列表。
+- `X-Forwarded-Host` / `X-Forwarded-Proto` 仅在来源为回环地址或 `security.trusted_proxies` 中列出的代理时才被信任，远程客户端无法伪造。默认部署（cloudflared 转发到 `127.0.0.1`）无需额外配置。
 - PTY 进程使用服务账号权限运行，断开连接时终止对应进程组。
+- 退出登录会同时撤销 Cookie 并结束当前 PTY；仅网络中断时保留 PTY 供重连，保留时长由 `terminal.session_retention` 控制（默认 1 小时）。
+- 文件管理接口被限制在 `terminal.working_directory` 之内，越界路径（包括绝对路径和 `..`）一律拒绝；终端本身仍可访问整台主机。
 - 默认仅监听回环地址，远程访问前应配置 HTTPS 或 Cloudflare Tunnel。
 - 除非明确需要 root 终端权限，否则不要以 root 身份运行服务。
+
+## 配置说明
+
+配置文件为 JSON，字段缺省时使用内置安全默认值；省略 `security.cookie_secure` 不会关闭安全 Cookie，必须显式写 `false` 才会关闭。
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `server.listen` | `127.0.0.1:7681` | 监听地址 |
+| `terminal.shell` | `/bin/bash` 或 `/bin/sh` | 必须为绝对路径的可执行文件 |
+| `terminal.working_directory` | 当前用户主目录 | 终端工作目录，同时是文件管理的根目录 |
+| `terminal.max_sessions` | `1` | 并发 PTY 数量 |
+| `terminal.idle_timeout` | `0`（禁用） | 空闲断开时长 |
+| `terminal.max_lifetime` | `0`（禁用） | 会话绝对时长，同时决定 Cookie 有效期 |
+| `terminal.session_retention` | `1h` | 断开连接后保留 PTY 供重连的时长 |
+| `security.trusted_origins` | `[]` | 额外的可信 Origin |
+| `security.trusted_proxies` | `[]` | 可信反向代理的 IP 或 CIDR；仅这些来源的转发头被采信，回环地址始终可信 |
+| `security.cookie_secure` | `true` | 仅通过 HTTPS 发送 Cookie |
+| `security.max_message_size` | `65536` | WebSocket 单条消息上限 |
+| `cloudflare.mode` | `disabled` | `disabled`、`quick` 或 `fixed` |
+
+使用固定令牌运行时，令牌来自 `WEBTERM_ACCESS_TOKEN`，程序只提示"令牌来自环境变量"，不会把长期令牌写入日志。

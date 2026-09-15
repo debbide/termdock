@@ -28,7 +28,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if authLifetime <= 0 {
 		authLifetime = 30 * 24 * time.Hour
 	}
-	if fixedToken := os.Getenv("WEBTERM_ACCESS_TOKEN"); fixedToken != "" {
+	fixedToken := os.Getenv("WEBTERM_ACCESS_TOKEN")
+	if fixedToken != "" {
 		manager, token, err = auth.NewWithToken(authLifetime, fixedToken)
 	} else {
 		manager, token, err = auth.New(authLifetime)
@@ -59,7 +60,14 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if publicURL != "" {
 		fmt.Printf("Public URL: %s\n", publicURL)
 	}
-	fmt.Printf("One-time token: %s\n", token)
+	// A configured token is a long-lived secret. Printing it would leak it into
+	// the service journal, so only a freshly generated one-time token is shown.
+	if fixedToken == "" {
+		fmt.Printf("One-time token: %s\n", token)
+	} else {
+		fmt.Println("Access token: read from WEBTERM_ACCESS_TOKEN")
+	}
+	fmt.Printf("File manager root: %s\n", cfg.Terminal.WorkingDir)
 	errChannel := make(chan error, 1)
 	go func() { errChannel <- httpServer.ListenAndServe() }()
 	select {

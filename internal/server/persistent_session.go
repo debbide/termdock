@@ -7,11 +7,18 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-
-	"webterm-cf/internal/terminal"
 )
 
 var errTerminalSessionClosed = errors.New("terminal session is closed")
+
+// terminalProcess is the PTY surface a persistent session needs. Keeping it an
+// interface lets session lifecycle be tested without allocating a real PTY.
+type terminalProcess interface {
+	Read(buffer []byte) (int, error)
+	Write(buffer []byte) (int, error)
+	Resize(columns, rows uint16) error
+	Close() error
+}
 
 // persistentSession owns the PTY independently from any browser connection.
 // At most one WebSocket may be attached. All WebSocket writes are serialized
@@ -19,7 +26,7 @@ var errTerminalSessionClosed = errors.New("terminal session is closed")
 type persistentSession struct {
 	mu       sync.Mutex
 	writeMu  sync.Mutex
-	terminal *terminal.Terminal
+	terminal terminalProcess
 	client   *websocket.Conn
 	clientID uint64
 	closed   chan struct{}
@@ -30,7 +37,7 @@ type persistentSession struct {
 	wakeReaper chan struct{}
 }
 
-func newPersistentSession(ptySession *terminal.Terminal, retention time.Duration) *persistentSession {
+func newPersistentSession(ptySession terminalProcess, retention time.Duration) *persistentSession {
 	session := &persistentSession{
 		terminal:   ptySession,
 		closed:     make(chan struct{}),

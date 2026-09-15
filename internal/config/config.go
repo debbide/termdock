@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -39,8 +41,8 @@ type Terminal struct {
 
 type Security struct {
 	TrustedOrigins []string `json:"trusted_origins"`
+	TrustedProxies []string `json:"trusted_proxies"`
 	CookieSecure   bool     `json:"cookie_secure"`
-	LoginRateLimit int      `json:"login_rate_limit"`
 	MaxMessageSize int64    `json:"max_message_size"`
 }
 
@@ -54,8 +56,17 @@ type diskConfig struct {
 		MaxLifetime      string `json:"max_lifetime"`
 		SessionRetention string `json:"session_retention"`
 	} `json:"terminal"`
-	Security   Security   `json:"security"`
-	Cloudflare Cloudflare `json:"cloudflare"`
+	Security   diskSecurity `json:"security"`
+	Cloudflare Cloudflare   `json:"cloudflare"`
+}
+
+// diskSecurity mirrors Security but keeps CookieSecure optional so an omitted
+// field cannot silently turn the secure default off.
+type diskSecurity struct {
+	TrustedOrigins []string `json:"trusted_origins"`
+	TrustedProxies []string `json:"trusted_proxies"`
+	CookieSecure   *bool    `json:"cookie_secure"`
+	MaxMessageSize int64    `json:"max_message_size"`
 }
 
 func Defaults() Config {
@@ -67,9 +78,9 @@ func Defaults() Config {
 			MaxSessions:      1,
 			IdleTimeout:      0,
 			MaxLifetime:      0,
-			SessionRetention: 24 * time.Hour,
+			SessionRetention: time.Hour,
 		},
-		Security:   Security{CookieSecure: true, LoginRateLimit: 5, MaxMessageSize: 64 << 10},
+		Security:   Security{CookieSecure: true, MaxMessageSize: 64 << 10},
 		Cloudflare: Cloudflare{Mode: "disabled", Binary: "/usr/local/bin/cloudflared", TokenFile: "/etc/webterm/cloudflare-token"},
 	}
 }
@@ -113,8 +124,8 @@ func Validate(cfg Config) error {
 	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
 		return errors.New("terminal shell must be an executable file")
 	}
-	if cfg.Terminal.MaxSessions < 1 || cfg.Security.LoginRateLimit < 1 || cfg.Security.MaxMessageSize < 1024 {
-		return errors.New("session, rate, and message limits must be positive")
+	if cfg.Terminal.MaxSessions < 1 || cfg.Security.MaxMessageSize < 1024 {
+		return errors.New("session and message limits must be positive")
 	}
 	if cfg.Terminal.IdleTimeout < 0 || cfg.Terminal.MaxLifetime < 0 || cfg.Terminal.SessionRetention < 0 {
 		return errors.New("terminal timeouts must be zero or positive")
@@ -127,6 +138,18 @@ func Validate(cfg Config) error {
 	}
 	if cfg.Cloudflare.Mode == "fixed" && !filepath.IsAbs(cfg.Cloudflare.TokenFile) {
 		return errors.New("cloudflare token file must be an absolute path")
+	}
+	for _, proxy := range cfg.Security.TrustedProxies {
+		value := strings.TrimSpace(proxy)
+		if value == "" {
+			return errors.New("trusted proxies must not contain empty entries")
+		}
+		if _, _, err := net.ParseCIDR(value); err == nil {
+			continue
+		}
+		if net.ParseIP(value) == nil {
+			return fmt.Errorf("trusted proxy %q must be an IP address or CIDR block", proxy)
+		}
 	}
 	return nil
 }
@@ -154,16 +177,18 @@ func merge(cfg *Config, disk diskConfig) error {
 	if cfg.Terminal.SessionRetention, err = parseOptionalDuration("terminal.session_retention", disk.Terminal.SessionRetention, cfg.Terminal.SessionRetention); err != nil {
 		return err
 	}
-	if disk.Security.LoginRateLimit > 0 {
-		cfg.Security.LoginRateLimit = disk.Security.LoginRateLimit
-	}
 	if disk.Security.MaxMessageSize > 0 {
 		cfg.Security.MaxMessageSize = disk.Security.MaxMessageSize
 	}
 	if disk.Security.TrustedOrigins != nil {
 		cfg.Security.TrustedOrigins = disk.Security.TrustedOrigins
 	}
-	cfg.Security.CookieSecure = disk.Security.CookieSecure
+	if disk.Security.TrustedProxies != nil {
+		cfg.Security.TrustedProxies = disk.Security.TrustedProxies
+	}
+	if disk.Security.CookieSecure != nil {
+		cfg.Security.CookieSecure = *disk.Security.CookieSecure
+	}
 	if disk.Cloudflare.Mode != "" {
 		cfg.Cloudflare.Mode = disk.Cloudflare.Mode
 	}

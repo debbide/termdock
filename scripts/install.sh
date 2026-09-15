@@ -163,7 +163,7 @@ install -d -m 0750 -o webterm -g webterm "$STATE_DIR" "$LOG_DIR"
 install -m 0755 "$DOWNLOAD_DIR/webterm" "$INSTALL_BIN"
 
 cat >"$CONFIG_DIR/config.json" <<EOF
-{"server":{"listen":"127.0.0.1:$WEBTERM_PORT"},"terminal":{"shell":"/bin/bash","working_directory":"$STATE_DIR","max_sessions":1,"idle_timeout":"15m","max_lifetime":"1h"},"security":{"trusted_origins":[],"cookie_secure":true,"login_rate_limit":5,"max_message_size":65536},"cloudflare":{"mode":"disabled","binary":"/usr/local/bin/cloudflared","token_file":"$CONFIG_DIR/cloudflare-token"}}
+{"server":{"listen":"127.0.0.1:$WEBTERM_PORT"},"terminal":{"shell":"/bin/bash","working_directory":"$STATE_DIR","max_sessions":1,"idle_timeout":"15m","max_lifetime":"1h"},"security":{"trusted_origins":[],"cookie_secure":true,"max_message_size":65536},"cloudflare":{"mode":"disabled","binary":"/usr/local/bin/cloudflared","token_file":"$CONFIG_DIR/cloudflare-token"}}
 EOF
 printf 'WEBTERM_ACCESS_TOKEN=%s\n' "$WEBTERM_TOKEN" >"$ENV_FILE"
 chown root:webterm "$CONFIG_DIR/config.json" "$ENV_FILE"
