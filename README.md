@@ -60,6 +60,35 @@ sudo systemctl restart webterm
 sudo journalctl -u webterm -f
 ```
 
+## 升级
+
+重新执行安装脚本即可升级，无需先卸载：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/debbide/termdock/main/scripts/install.sh | sudo sh
+```
+
+**已有配置会被保留。** 脚本检测到 `/etc/webterm/config.json` 已存在时不再用默认值覆盖它，而是先备份为 `/etc/webterm/config.json.bak`，并提示你按需手动合并新默认值。令牌仍从 `/etc/webterm/environment` 读取，升级不会更换固定令牌。
+
+> 注意：本版本之前的安装脚本会无条件用默认配置覆盖 `config.json`。如果你在此版本之前升级过并且改过配置，请检查 `config.json` 是否已被重置；该保护只对本次及以后的升级生效。
+
+### 行为变化
+
+升级后以下行为与旧版本不同，请留意：
+
+| 变化 | 旧行为 | 新行为 |
+| --- | --- | --- |
+| 退出登录 | 只清除 Cookie，PTY 会话继续保留 | 同时撤销 Cookie 并结束当前 PTY 会话 |
+| 断线保留窗口 | 默认 24 小时 | 默认 1 小时（`terminal.session_retention`） |
+| 固定令牌 | 会把 `WEBTERM_ACCESS_TOKEN` 的值打印到日志 | 只提示"令牌来自环境变量"，不打印令牌 |
+| 文件管理范围 | 可访问工作目录之外 | 限制在 `terminal.working_directory` 内，越界路径一律拒绝 |
+| 省略 `cookie_secure` | 被当作 `false`（关闭安全 Cookie） | 保持安全默认值 `true`；必须显式写 `false` 才会关闭 |
+| `X-Forwarded-Host` / `X-Forwarded-Proto` | 任何来源都被信任 | 仅回环地址或 `security.trusted_proxies` 中的来源被信任 |
+| 启动输出 | 无 | 新增一行 `File manager root: <路径>` |
+| 登录限速 | `security.login_rate_limit` 限制失败次数 | 该字段已移除，配置中残留会被静默忽略，不影响启动 |
+
+旧配置中残留的 `login_rate_limit` 是安全的：配置解析不会因为未知字段而失败。另外，`security.trusted_proxies` 中的条目必须是合法 IP 或 CIDR，否则服务会拒绝启动。
+
 ## 一键卸载
 
 通过管道执行卸载：

@@ -162,12 +162,22 @@ install -d -m 0750 -o root -g webterm "$CONFIG_DIR"
 install -d -m 0750 -o webterm -g webterm "$STATE_DIR" "$LOG_DIR"
 install -m 0755 "$DOWNLOAD_DIR/webterm" "$INSTALL_BIN"
 
-cat >"$CONFIG_DIR/config.json" <<EOF
+if [ -f "$CONFIG_DIR/config.json" ]; then
+  cp -p "$CONFIG_DIR/config.json" "$CONFIG_DIR/config.json.bak"
+  echo "检测到已有配置，已保留原文件，旧版本备份为 $CONFIG_DIR/config.json.bak"
+  echo "新版本的默认值不会自动写入；如需采用，请参照 README 的配置说明手动合并。"
+else
+  cat >"$CONFIG_DIR/config.json" <<EOF
 {"server":{"listen":"127.0.0.1:$WEBTERM_PORT"},"terminal":{"shell":"/bin/bash","working_directory":"$STATE_DIR","max_sessions":1,"idle_timeout":"15m","max_lifetime":"1h"},"security":{"trusted_origins":[],"cookie_secure":true,"max_message_size":65536},"cloudflare":{"mode":"disabled","binary":"/usr/local/bin/cloudflared","token_file":"$CONFIG_DIR/cloudflare-token"}}
 EOF
+fi
 printf 'WEBTERM_ACCESS_TOKEN=%s\n' "$WEBTERM_TOKEN" >"$ENV_FILE"
 chown root:webterm "$CONFIG_DIR/config.json" "$ENV_FILE"
 chmod 0640 "$CONFIG_DIR/config.json" "$ENV_FILE"
+if [ -f "$CONFIG_DIR/config.json.bak" ]; then
+  chown root:webterm "$CONFIG_DIR/config.json.bak"
+  chmod 0640 "$CONFIG_DIR/config.json.bak"
+fi
 
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ] && systemctl show-environment >/dev/null 2>&1; then
   cat >"$SERVICE_FILE" <<EOF
