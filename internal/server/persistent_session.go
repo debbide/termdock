@@ -3,6 +3,8 @@ package server
 import (
 	"errors"
 	"io"
+	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -45,15 +47,23 @@ func newPersistentSession(ptySession terminalProcess, retention time.Duration) *
 		retention:  retention,
 		wakeReaper: make(chan struct{}, 1),
 	}
-	go session.readOutput()
+	goSafely(session.readOutput)
 	if retention > 0 {
-		go session.reapDetached()
+		goSafely(session.reapDetached)
 	}
 	return session
 }
 
 func (session *persistentSession) readOutput() {
 	defer close(session.done)
+	// A panic here would bypass the read-error path and leak the PTY. Close the
+	// session on the way out so the shell process group is still reaped.
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.Error("terminal output goroutine panic", "panic", recovered, "stack", string(debug.Stack()))
+			session.close()
+		}
+	}()
 	buffer := make([]byte, 32<<10)
 	for {
 		count, err := session.terminal.Read(buffer)

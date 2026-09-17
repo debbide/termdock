@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -81,7 +82,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/files/archive", server.archiveFile)
 	mux.HandleFunc("POST /api/files/operations", server.fileOperation)
 	mux.Handle("/", http.FileServer(http.FS(server.assets)))
-	return securityHeaders(mux)
+	return recoverPanic(securityHeaders(mux))
 }
 
 type fileEntry struct {
@@ -487,7 +488,7 @@ func (server *Server) terminalSession() (*persistentSession, error) {
 	}
 	server.session = newPersistentSession(ptySession, server.cfg.Terminal.SessionRetention)
 	current := server.session
-	go func() {
+	goSafely(func() {
 		if server.cfg.Terminal.MaxLifetime > 0 {
 			timer := time.NewTimer(server.cfg.Terminal.MaxLifetime)
 			defer timer.Stop()
@@ -505,7 +506,7 @@ func (server *Server) terminalSession() (*persistentSession, error) {
 			server.limiter.Release()
 		}
 		server.sessionMu.Unlock()
-	}()
+	})
 	return current, nil
 }
 
@@ -528,10 +529,10 @@ func (server *Server) closeTerminalSession() {
 	server.limiter.Release()
 	server.sessionMu.Unlock()
 	finished := make(chan struct{})
-	go func() {
+	goSafely(func() {
 		current.close()
 		close(finished)
-	}()
+	})
 	select {
 	case <-finished:
 	case <-time.After(5 * time.Second):
@@ -545,6 +546,15 @@ func (server *Server) bridge(parent context.Context, connection *websocket.Conn,
 	heartbeat := time.NewTicker(30 * time.Second)
 	defer heartbeat.Stop()
 	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.Error("terminal read goroutine panic", "panic", recovered, "stack", string(debug.Stack()))
+				select {
+				case errorsChannel <- fmt.Errorf("terminal read panic: %v", recovered):
+				case <-parent.Done():
+				}
+			}
+		}()
 		for {
 			messageType, data, err := connection.ReadMessage()
 			if err != nil {
@@ -648,6 +658,40 @@ func (server *Server) validOrigin(request *http.Request) bool {
 	}
 	return false
 }
+
+// recoverPanic turns an unexpected panic in any request into a logged 500
+// instead of crashing the process. net/http already recovers for ordinary
+// handlers, but only by aborting the connection without a structured log line.
+// After a WebSocket upgrade the ResponseWriter is unusable, so the http.Error
+// below is a no-op there; the connection's own deferred cleanup still runs
+// during the unwind.
+func recoverPanic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.Error("request panic", "path", request.URL.Path, "panic", recovered, "stack", string(debug.Stack()))
+				http.Error(writer, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(writer, request)
+	})
+}
+
+// goSafely runs fn in its own goroutine and converts a panic into a structured
+// log line instead of terminating the process. net/http cannot recover
+// goroutines started after a WebSocket connection is hijacked, so background
+// work that serves an established connection must protect itself this way.
+func goSafely(fn func()) {
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.Error("goroutine panic", "panic", recovered, "stack", string(debug.Stack()))
+			}
+		}()
+		fn()
+	}()
+}
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
