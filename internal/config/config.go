@@ -31,10 +31,15 @@ type Server struct {
 }
 
 type Terminal struct {
-	Shell            string        `json:"shell"`
-	WorkingDir       string        `json:"working_directory"`
-	MaxSessions      int           `json:"max_sessions"`
-	IdleTimeout      time.Duration `json:"-"`
+	Shell       string `json:"shell"`
+	WorkingDir  string `json:"working_directory"`
+	MaxSessions int    `json:"max_sessions"`
+	// IdleTimeout closes an idle PTY session after the given duration.
+	// Zero disables the idle timeout.
+	IdleTimeout time.Duration `json:"-"`
+	// MaxLifetime caps both the PTY session lifetime and the login cookie
+	// lifetime. Zero disables the PTY lifetime cap; login cookies then
+	// fall back to a 30-day expiry instead of living forever.
 	MaxLifetime      time.Duration `json:"-"`
 	SessionRetention time.Duration `json:"-"`
 }

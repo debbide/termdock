@@ -29,6 +29,20 @@ type Manager struct {
 	cancel context.CancelFunc
 }
 
+const (
+	// quickStartTimeout bounds how long Start waits for cloudflared to print
+	// its public URL. Without it, a stuck cloudflared process would hang
+	// startup forever.
+	quickStartTimeout = 90 * time.Second
+
+	// Fixed-mode restart backoff: start at 2s and double on every fast
+	// failure, so a misconfigured tunnel does not hot-loop. A run that
+	// stayed up for at least healthyRunThreshold resets the backoff.
+	initialRestartDelay = 2 * time.Second
+	maxRestartDelay     = 5 * time.Minute
+	healthyRunThreshold = time.Minute
+)
+
 func New() *Manager {
 	return &Manager{}
 }
@@ -86,6 +100,9 @@ func (manager *Manager) Start(ctx context.Context, binary, mode, listen, tokenFi
 			err = errors.New("cloudflared exited before publishing a URL")
 		}
 		return "", err
+	case <-time.After(quickStartTimeout):
+		manager.Stop()
+		return "", errors.New("timed out waiting for cloudflare tunnel public URL")
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
@@ -111,18 +128,32 @@ func (manager *Manager) Stop() error {
 }
 
 func (manager *Manager) superviseFixed(ctx context.Context, binary string, arguments []string, command *exec.Cmd) {
+	restartDelay := initialRestartDelay
+	waitBeforeRestart := func() bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(restartDelay):
+			return true
+		}
+	}
 	for {
+		startedAt := time.Now()
 		err := command.Wait()
 		manager.mu.Lock()
 		manager.status.Running = false
 		manager.status.Err = err
 		manager.mu.Unlock()
 
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(2 * time.Second):
+		// A tunnel that stayed up a while counts as a healthy run: reset
+		// the backoff instead of punishing a later, unrelated failure.
+		if time.Since(startedAt) >= healthyRunThreshold {
+			restartDelay = initialRestartDelay
 		}
+		if !waitBeforeRestart() {
+			return
+		}
+		restartDelay = nextRestartDelay(restartDelay)
 
 		command = exec.CommandContext(ctx, binary, arguments...)
 		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -144,6 +175,16 @@ func (manager *Manager) superviseFixed(ctx context.Context, binary string, argum
 		manager.mu.Unlock()
 		go manager.consume(output, make(chan string, 1))
 	}
+}
+
+// nextRestartDelay doubles the restart delay up to maxRestartDelay, so a
+// misconfigured fixed tunnel backs off instead of hot-looping.
+func nextRestartDelay(current time.Duration) time.Duration {
+	next := current * 2
+	if next > maxRestartDelay {
+		return maxRestartDelay
+	}
+	return next
 }
 
 func (manager *Manager) setRestartError(err error) {

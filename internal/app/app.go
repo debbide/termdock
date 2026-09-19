@@ -20,13 +20,19 @@ import (
 //go:embed static/*
 var static embed.FS
 
+// defaultCookieLifetime is the login cookie lifetime used when
+// terminal.max_lifetime is "0". A zero max_lifetime means PTY sessions are
+// never force-closed, but cookies still need an expiry, so they fall back
+// to this value instead of living forever.
+const defaultCookieLifetime = 30 * 24 * time.Hour
+
 func Run(ctx context.Context, cfg config.Config) error {
 	var manager *auth.Manager
 	var token string
 	var err error
 	authLifetime := cfg.Terminal.MaxLifetime
 	if authLifetime <= 0 {
-		authLifetime = 30 * 24 * time.Hour
+		authLifetime = defaultCookieLifetime
 	}
 	fixedToken := os.Getenv("WEBTERM_ACCESS_TOKEN")
 	if fixedToken != "" {

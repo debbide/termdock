@@ -69,3 +69,15 @@ func TestFixedTunnelRestartsAfterExit(t *testing.T) {
 	}
 	t.Fatal("fixed tunnel was not restarted")
 }
+
+func TestNextRestartDelay(t *testing.T) {
+	if got := nextRestartDelay(initialRestartDelay); got != 2*initialRestartDelay {
+		t.Fatalf("expected delay to double, got %v", got)
+	}
+	if got := nextRestartDelay(maxRestartDelay); got != maxRestartDelay {
+		t.Fatalf("expected delay to cap at %v, got %v", maxRestartDelay, got)
+	}
+	if got := nextRestartDelay(4 * time.Minute); got != maxRestartDelay {
+		t.Fatalf("expected delay to cap at %v, got %v", maxRestartDelay, got)
+	}
+}
