@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -166,9 +165,6 @@ func merge(cfg *Config, disk diskConfig) error {
 	if disk.Terminal.Shell != "" {
 		cfg.Terminal.Shell = disk.Terminal.Shell
 	}
-	if disk.Terminal.WorkingDir != "" {
-		cfg.Terminal.WorkingDir = disk.Terminal.WorkingDir
-	}
 	if disk.Terminal.MaxSessions > 0 {
 		cfg.Terminal.MaxSessions = disk.Terminal.MaxSessions
 	}
@@ -212,9 +208,6 @@ func applyEnvironment(cfg *Config) error {
 	}
 	if value := os.Getenv("WEBTERM_SHELL"); value != "" {
 		cfg.Terminal.Shell = value
-	}
-	if value := os.Getenv("WEBTERM_WORKING_DIRECTORY"); value != "" {
-		cfg.Terminal.WorkingDir = value
 	}
 	if value, err := strconv.Atoi(os.Getenv("WEBTERM_MAX_SESSIONS")); err == nil && value > 0 {
 		cfg.Terminal.MaxSessions = value
@@ -265,8 +258,5 @@ func defaultShell() string {
 }
 
 func defaultWorkingDir() string {
-	if current, err := user.Current(); err == nil && current.HomeDir != "" {
-		return current.HomeDir
-	}
-	return "/tmp"
+	return "/"
 }
