@@ -37,6 +37,11 @@ type persistentSession struct {
 	detachedAt time.Time
 	retention  time.Duration
 	wakeReaper chan struct{}
+
+	// tmuxTarget records the tmux session/window driven by this PTY. Browser
+	// WebSocket reconnects attach to the same persistentSession, so keeping this
+	// state here avoids issuing a second attach-session command after reconnect.
+	tmuxTarget *tmuxTarget
 }
 
 func newPersistentSession(ptySession terminalProcess, retention time.Duration) *persistentSession {
@@ -140,6 +145,38 @@ func (session *persistentSession) write(client *websocket.Conn, clientID uint64,
 
 func (session *persistentSession) resize(columns, rows uint16) error {
 	return session.terminal.Resize(columns, rows)
+}
+
+func (session *persistentSession) currentTmuxTarget() *tmuxTarget {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.tmuxTarget == nil {
+		return nil
+	}
+	target := *session.tmuxTarget
+	return &target
+}
+
+func (session *persistentSession) setTmuxTarget(target tmuxTarget) {
+	session.mu.Lock()
+	session.tmuxTarget = &target
+	session.mu.Unlock()
+}
+
+func (session *persistentSession) clearTmuxTarget(name string) {
+	session.mu.Lock()
+	if session.tmuxTarget != nil && session.tmuxTarget.Session == name {
+		session.tmuxTarget = nil
+	}
+	session.mu.Unlock()
+}
+
+func (session *persistentSession) renameTmuxTarget(oldName, newName string) {
+	session.mu.Lock()
+	if session.tmuxTarget != nil && session.tmuxTarget.Session == oldName {
+		session.tmuxTarget.Session = newName
+	}
+	session.mu.Unlock()
 }
 
 func (session *persistentSession) ping(client *websocket.Conn, clientID uint64) error {

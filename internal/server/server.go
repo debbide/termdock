@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -41,6 +42,9 @@ type Server struct {
 	// can drive the session lifecycle without spawning a real shell.
 	startTerminal func(shell, directory string) (terminalProcess, error)
 	runCommand    tmuxCommandRunner
+	lookPath      func(string) (string, error)
+	tmuxMu        sync.Mutex
+	defaultTmux   string
 	uploadMu      sync.Mutex
 	uploads       map[string]*chunkUpload
 }
@@ -56,6 +60,7 @@ func New(cfg config.Config, manager *auth.Manager, assets fs.FS) *Server {
 			return terminal.Start(shell, directory)
 		},
 		runCommand: runTmuxCommand,
+		lookPath:   exec.LookPath,
 		uploads:    make(map[string]*chunkUpload),
 	}
 }
@@ -69,9 +74,14 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", server.logout)
 	mux.HandleFunc("POST /api/session/terminate", server.terminate)
 	mux.HandleFunc("GET /api/terminal/ws", server.webSocket)
+	mux.HandleFunc("GET /api/tmux/state", server.tmuxStateHandler)
 	mux.HandleFunc("GET /api/tmux/sessions", server.listTmuxSessions)
 	mux.HandleFunc("POST /api/tmux/sessions", server.createTmuxSession)
 	mux.HandleFunc("POST /api/tmux/sessions/{name}/attach", server.attachTmuxSession)
+	mux.HandleFunc("PATCH /api/tmux/sessions/{name}", server.renameTmuxSession)
+	mux.HandleFunc("GET /api/tmux/sessions/{name}/windows", server.listTmuxWindows)
+	mux.HandleFunc("POST /api/tmux/sessions/{name}/windows/{index}/select", server.selectTmuxWindow)
+	mux.HandleFunc("PUT /api/tmux/default", server.setDefaultTmuxTarget)
 	mux.HandleFunc("DELETE /api/tmux/sessions/{name}", server.killTmuxSession)
 	mux.HandleFunc("GET /api/files", server.listFiles)
 	mux.HandleFunc("GET /api/files/download", server.downloadFile)

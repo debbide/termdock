@@ -588,3 +588,30 @@ func TestUploadFileRejectsExistingDestination(t *testing.T) {
 		t.Fatalf("existing file was changed: %q", data)
 	}
 }
+
+func TestTmuxAvailableUsesInjectedPathLookup(t *testing.T) {
+	server, _ := newTestServer(t)
+	var lookedUp string
+	server.lookPath = func(name string) (string, error) {
+		lookedUp = name
+		return "/usr/bin/tmux", nil
+	}
+
+	if !server.tmuxAvailable() {
+		t.Fatal("expected tmux to be available")
+	}
+	if lookedUp != "tmux" {
+		t.Fatalf("looked up %q, want tmux", lookedUp)
+	}
+}
+
+func TestTmuxUnavailableWhenPathLookupFails(t *testing.T) {
+	server, _ := newTestServer(t)
+	server.lookPath = func(string) (string, error) {
+		return "", errors.New("tmux not found")
+	}
+
+	if server.tmuxAvailable() {
+		t.Fatal("expected tmux to be unavailable")
+	}
+}

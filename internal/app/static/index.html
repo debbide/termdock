@@ -40,7 +40,9 @@
     <section class="tmux-window">
       <div class="tmux-header"><div><h2 id="tmux-title">tmux 会话</h2><p>创建并管理服务器上的持久终端会话</p></div><div class="tmux-header-actions"><button id="refresh-tmux" type="button">刷新</button><button id="close-tmux" type="button" aria-label="关闭 tmux 会话面板">关闭</button></div></div>
       <form id="tmux-create-form" class="tmux-create"><input id="tmux-name" type="text" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,63}" placeholder="新会话名称" autocomplete="off" required><button class="btn-primary" type="submit">创建</button></form>
+      <div class="tmux-management-bar"><input id="tmux-search" type="search" placeholder="搜索会话"><select id="tmux-sort"><option value="name:asc">名称升序</option><option value="name:desc">名称降序</option><option value="created:desc">最新创建</option><option value="created:asc">最早创建</option><option value="windows:desc">窗口数降序</option><option value="windows:asc">窗口数升序</option></select></div>
       <p id="tmux-status" class="tmux-status" role="status" aria-live="polite">正在检测 tmux…</p>
+      <p id="tmux-copy-hint" class="tmux-status" hidden></p>
       <div id="tmux-sessions" class="tmux-sessions"></div>
     </section>
   </dialog>
