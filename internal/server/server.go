@@ -78,6 +78,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tmux/sessions", server.listTmuxSessions)
 	mux.HandleFunc("POST /api/tmux/sessions", server.createTmuxSession)
 	mux.HandleFunc("POST /api/tmux/sessions/{name}/attach", server.attachTmuxSession)
+	mux.HandleFunc("POST /api/tmux/detach", server.detachTmuxSession)
 	mux.HandleFunc("PATCH /api/tmux/sessions/{name}", server.renameTmuxSession)
 	mux.HandleFunc("GET /api/tmux/sessions/{name}/windows", server.listTmuxWindows)
 	mux.HandleFunc("POST /api/tmux/sessions/{name}/windows/{index}/select", server.selectTmuxWindow)

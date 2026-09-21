@@ -309,6 +309,31 @@ func (server *Server) attachTmuxSession(writer http.ResponseWriter, request *htt
 	writeJSON(writer, map[string]any{"current_target": server.currentTmuxTarget()})
 }
 
+func (server *Server) detachTmuxSession(writer http.ResponseWriter, request *http.Request) {
+	if !server.authenticated(request) {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	server.sessionMu.Lock()
+	terminalSession := server.session
+	server.sessionMu.Unlock()
+	if terminalSession == nil {
+		http.Error(writer, "终端尚未连接", http.StatusConflict)
+		return
+	}
+	current := terminalSession.currentTmuxTarget()
+	if current == nil {
+		http.Error(writer, "当前未连接 tmux 会话", http.StatusConflict)
+		return
+	}
+	if _, err := terminalSession.terminal.Write([]byte("\x02d")); err != nil {
+		http.Error(writer, "退出 tmux 会话失败", http.StatusInternalServerError)
+		return
+	}
+	terminalSession.clearTmuxTarget(current.Session)
+	writeJSON(writer, map[string]any{"current_target": nil})
+}
+
 func (server *Server) selectTmuxWindow(writer http.ResponseWriter, request *http.Request) {
 	if !server.authenticated(request) {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
@@ -428,11 +453,16 @@ func (server *Server) killTmuxSession(writer http.ResponseWriter, request *http.
 		return
 	}
 	if current := server.currentTmuxTarget(); current != nil && current.Session == name {
-		http.Error(writer, "无法结束当前正在使用的 tmux 会话，请先切换到其他会话", http.StatusConflict)
-		return
+		server.sessionMu.Lock()
+		terminalSession := server.session
+		server.sessionMu.Unlock()
+		if terminalSession != nil {
+			_, _ = terminalSession.terminal.Write([]byte("\x02d"))
+			terminalSession.clearTmuxTarget(name)
+		}
 	}
 	if _, err := server.runCommand("tmux", "kill-session", "-t", name); err != nil {
-		http.Error(writer, "tmux 会话不存在或无法结束", http.StatusNotFound)
+		http.Error(writer, "tmux 会话不存在或无法删除", http.StatusNotFound)
 		return
 	}
 	if server.tmuxDefault() == name {
