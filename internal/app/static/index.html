@@ -18,7 +18,7 @@
     <p id="error" role="alert"></p>
   </main>
   <main id="terminal" hidden>
-    <header><span>TermDock <span id="connection-status" data-state="connecting" role="status" aria-live="polite">正在连接…</span></span><nav><button id="files-tab" type="button" aria-controls="files-panel" aria-expanded="false">文件管理</button><button id="logout">退出登录</button></nav></header>
+    <header><span>TermDock <span id="connection-status" data-state="connecting" role="status" aria-live="polite">正在连接…</span></span><nav><button id="tmux-tab" type="button" aria-controls="tmux-dialog">tmux 会话</button><button id="files-tab" type="button" aria-controls="files-panel" aria-expanded="false">文件管理</button><button id="logout">退出登录</button></nav></header>
     <div id="workspace" class="files-collapsed">
       <section id="terminal-panel"><div id="screen" tabindex="0"></div><button id="terminal-new-output" type="button" hidden>有新输出，返回底部</button></section>
       <button id="files-backdrop" type="button" tabindex="-1" aria-label="关闭文件管理" hidden></button>
@@ -36,6 +36,14 @@
       </aside>
     </div>
   </main>
+  <dialog id="tmux-dialog" aria-labelledby="tmux-title">
+    <section class="tmux-window">
+      <div class="tmux-header"><div><h2 id="tmux-title">tmux 会话</h2><p>创建并管理服务器上的持久终端会话</p></div><div class="tmux-header-actions"><button id="refresh-tmux" type="button">刷新</button><button id="close-tmux" type="button" aria-label="关闭 tmux 会话面板">关闭</button></div></div>
+      <form id="tmux-create-form" class="tmux-create"><input id="tmux-name" type="text" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,63}" placeholder="新会话名称" autocomplete="off" required><button class="btn-primary" type="submit">创建</button></form>
+      <p id="tmux-status" class="tmux-status" role="status" aria-live="polite">正在检测 tmux…</p>
+      <div id="tmux-sessions" class="tmux-sessions"></div>
+    </section>
+  </dialog>
   <dialog id="prompt-dialog"><form method="dialog" class="dialog-window"><h3 id="prompt-message">提示</h3><input id="prompt-input" type="text" autocomplete="off"><div class="dialog-actions"><button class="btn-cancel" value="cancel">取消</button><button class="btn-primary" value="ok">确定</button></div></form></dialog>
   <dialog id="confirm-dialog"><form method="dialog" class="dialog-window"><h3 id="confirm-message">确认</h3><div class="dialog-actions"><button class="btn-cancel" value="cancel">取消</button><button class="btn-danger" value="ok">确定</button></div></form></dialog>
   <dialog id="editor"><form method="dialog" class="editor-window"><div class="editor-title"><strong id="editor-name">编辑文件</strong><button value="cancel">关闭</button></div><textarea id="editor-content" spellcheck="false"></textarea><p id="editor-error" role="alert"></p><div class="editor-actions"><button class="btn-cancel" value="cancel">取消</button><button type="button" id="save-file" class="btn-primary">保存</button></div></form></dialog>

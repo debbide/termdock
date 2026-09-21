@@ -40,6 +40,7 @@ type Server struct {
 	// startTerminal allocates the PTY for a new session. It is a field so tests
 	// can drive the session lifecycle without spawning a real shell.
 	startTerminal func(shell, directory string) (terminalProcess, error)
+	runCommand    tmuxCommandRunner
 	uploadMu      sync.Mutex
 	uploads       map[string]*chunkUpload
 }
@@ -54,7 +55,8 @@ func New(cfg config.Config, manager *auth.Manager, assets fs.FS) *Server {
 		startTerminal: func(shell, directory string) (terminalProcess, error) {
 			return terminal.Start(shell, directory)
 		},
-		uploads: make(map[string]*chunkUpload),
+		runCommand: runTmuxCommand,
+		uploads:    make(map[string]*chunkUpload),
 	}
 }
 
@@ -67,6 +69,10 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", server.logout)
 	mux.HandleFunc("POST /api/session/terminate", server.terminate)
 	mux.HandleFunc("GET /api/terminal/ws", server.webSocket)
+	mux.HandleFunc("GET /api/tmux/sessions", server.listTmuxSessions)
+	mux.HandleFunc("POST /api/tmux/sessions", server.createTmuxSession)
+	mux.HandleFunc("POST /api/tmux/sessions/{name}/attach", server.attachTmuxSession)
+	mux.HandleFunc("DELETE /api/tmux/sessions/{name}", server.killTmuxSession)
 	mux.HandleFunc("GET /api/files", server.listFiles)
 	mux.HandleFunc("GET /api/files/download", server.downloadFile)
 	mux.HandleFunc("GET /api/files/content", server.readFile)
