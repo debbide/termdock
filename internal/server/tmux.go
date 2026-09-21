@@ -138,6 +138,10 @@ func (server *Server) attachTmuxSession(writer http.ResponseWriter, request *htt
 		http.Error(writer, "tmux 会话不存在", http.StatusNotFound)
 		return
 	}
+	if _, err := server.runCommand("tmux", "set-option", "-t", name, "mouse", "on"); err != nil {
+		http.Error(writer, "无法启用 tmux 鼠标滚动", http.StatusInternalServerError)
+		return
+	}
 	server.sessionMu.Lock()
 	current := server.session
 	server.sessionMu.Unlock()
