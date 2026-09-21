@@ -18,11 +18,12 @@
     <p id="error" role="alert"></p>
   </main>
   <main id="terminal" hidden>
-    <header><span>TermDock <span id="connection-status" data-state="connecting" role="status" aria-live="polite">正在连接…</span></span><nav><button id="files-tab" class="active">文件管理</button><button id="logout">退出登录</button></nav></header>
-    <div id="workspace">
+    <header><span>TermDock <span id="connection-status" data-state="connecting" role="status" aria-live="polite">正在连接…</span></span><nav><button id="files-tab" type="button" aria-controls="files-panel" aria-expanded="false">文件管理</button><button id="logout">退出登录</button></nav></header>
+    <div id="workspace" class="files-collapsed">
       <section id="terminal-panel"><div id="screen" tabindex="0"></div><button id="terminal-new-output" type="button" hidden>有新输出，返回底部</button></section>
-      <aside id="files-panel">
-        <div class="panel-title"><strong>SFTP 文件管理</strong><button id="refresh-files">刷新</button></div>
+      <button id="files-backdrop" type="button" tabindex="-1" aria-label="关闭文件管理" hidden></button>
+      <aside id="files-panel" class="collapsed" aria-hidden="true">
+        <div class="panel-title"><strong>SFTP 文件管理</strong><div class="panel-actions"><button id="refresh-files">刷新</button><button id="close-files" type="button" aria-label="关闭文件管理">关闭</button></div></div>
         <div class="file-toolbar"><button id="parent">上级目录</button><input id="path" value="/"><button id="open-path">打开</button><button id="new-directory">新建文件夹</button><label class="upload">上传<input id="upload" type="file" hidden></label></div>
         <div class="file-management-bar"><input id="file-search" type="search" placeholder="搜索文件"><select id="file-sort"><option value="name:asc">名称升序</option><option value="name:desc">名称降序</option><option value="size:asc">大小升序</option><option value="size:desc">大小降序</option><option value="modified:desc">最新修改</option><option value="modified:asc">最早修改</option></select><span id="selection-count"></span></div>
         <div id="upload-progress" class="upload-progress" hidden aria-live="polite">

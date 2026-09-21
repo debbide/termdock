@@ -223,6 +223,7 @@ nav button:hover:not(.active) { color: var(--text-main); background: rgba(255,25
 
 #files-panel {
   flex: 0 0 clamp(420px, 45vw, 700px);
+  min-width: 0;
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -230,19 +231,34 @@ nav button:hover:not(.active) { color: var(--text-main); background: rgba(255,25
   display: flex;
   flex-direction: column;
   backdrop-filter: var(--blur);
-  transition: all 0.3s ease;
+  opacity: 1;
+  transform: translateX(0);
+  transition: flex-basis 0.25s ease, opacity 0.2s ease, transform 0.25s ease, padding 0.25s ease, border-width 0.25s ease;
 }
 
-#files-panel.collapsed { display: none; }
+#files-panel.collapsed {
+  flex-basis: 0;
+  width: 0;
+  padding-inline: 0;
+  border-width: 0;
+  opacity: 0;
+  transform: translateX(2rem);
+  overflow: hidden;
+  pointer-events: none;
+}
+#workspace.files-collapsed { gap: 0; }
 #workspace.files-collapsed #terminal-panel { width: 100%; }
+#files-backdrop { display: none; }
 
 .panel-title {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   margin-bottom: 1rem;
 }
 .panel-title strong { font-weight: 600; font-size: 1.1rem; }
+.panel-actions { display: flex; align-items: center; gap: 0.5rem; }
 .panel-title button { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
 
 .file-toolbar {
@@ -399,8 +415,41 @@ dialog::backdrop {
 #save-file:hover { background: var(--primary-hover); }
 
 @media(max-width: 760px) {
-  #workspace { flex-direction: column; }
-  #files-panel { flex: 1; min-width: 0; }
+  #terminal { padding: 0.65rem; }
+  header { gap: 0.5rem; padding-inline: 0; }
+  nav button { padding-inline: 0.7rem; }
+  #workspace { position: relative; }
+  #files-backdrop:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  #files-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    width: 100%;
+    height: 100dvh;
+    min-width: 0;
+    padding: 1rem;
+    border: 0;
+    border-radius: 0;
+    transform: translateX(0);
+  }
+  #files-panel.collapsed {
+    width: 100%;
+    padding: 1rem;
+    border-width: 0;
+    transform: translateX(100%);
+    visibility: hidden;
+  }
+  .panel-title { margin-bottom: 0.75rem; }
+  .file-toolbar { margin-bottom: 0.75rem; }
   th:nth-child(3), td:nth-child(3), th:nth-child(4), td:nth-child(4) { display: none; }
 }
 
